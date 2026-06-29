@@ -11,6 +11,7 @@ from app.models import (
     EntryMode,
     EntryModel,
     EntryStatus,
+    JobModel,
     TimetableModel,
     UserModel,
     status_for_choices,
@@ -234,5 +235,11 @@ def clone_timetable(
 
 @router.delete("/{timetable_id}")
 def delete_timetable(timetable_id: str, user: UserModel = Depends(get_current_user)):
-    owned_or_404(timetable_id, user).delete()
+    tt = owned_or_404(timetable_id, user)
+    # Cascade: remove student entries and processing jobs first.
+    for e in EntryModel.query(timetable_id):
+        e.delete()
+    for j in JobModel.scan(JobModel.timetable_id == timetable_id):
+        j.delete()
+    tt.delete()
     return {"ok": True}

@@ -37,7 +37,13 @@ function buildChips(tt: Timetable): ClassChip[] {
   return chips;
 }
 
-export default function Processing({ tt }: { tt: Timetable }) {
+export default function Processing({
+  tt,
+  onTimetableChange,
+}: {
+  tt: Timetable;
+  onTimetableChange?: () => void;
+}) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [mode, setMode] = useState<Mode>("auto");
   const [prevId, setPrevId] = useState("");
@@ -162,18 +168,21 @@ export default function Processing({ tt }: { tt: Timetable }) {
         </button>
       </div>
 
-      <p className="text-xs text-slate-500">
-        Drag classes into blocks to pin them. Anything left in{" "}
-        <span className="font-medium">Automatic placement</span> is positioned by the
-        solver.
-      </p>
-
-      <LayoutBoard
-        blocks={blocks}
-        chips={chips}
-        placement={placement}
-        onDragEnd={onDragEnd}
-      />
+      {mode !== "auto" && (
+        <>
+          <p className="text-xs text-slate-500">
+            Drag classes into blocks to pin them. Anything left in{" "}
+            <span className="font-medium">Automatic placement</span> is positioned by
+            the solver.
+          </p>
+          <LayoutBoard
+            blocks={blocks}
+            chips={chips}
+            placement={placement}
+            onDragEnd={onDragEnd}
+          />
+        </>
+      )}
 
       {err && <p className="text-sm text-red-600">{err}</p>}
 
@@ -208,7 +217,10 @@ export default function Processing({ tt }: { tt: Timetable }) {
                     <SolutionView
                       tt={tt}
                       job={j}
-                      onFinalised={load}
+                      onFinalised={() => {
+                        load();
+                        onTimetableChange?.();
+                      }}
                       isFinalised={tt.finalised_job_id === j.id}
                     />
                   )}
@@ -257,7 +269,7 @@ function LayoutBoard({
         <Zone id={AUTO} title="Automatic placement" muted>
           <div className="flex flex-wrap gap-2">
             {inZone(AUTO).map((c) => (
-              <Chip key={c.id} chip={c} />
+              <Chip key={c.id} chip={c} compact />
             ))}
             {inZone(AUTO).length === 0 && (
               <span className="text-xs text-slate-400">
@@ -296,21 +308,26 @@ function Zone({
   );
 }
 
-function Chip({ chip }: { chip: ClassChip }) {
+function Chip({ chip, compact }: { chip: ClassChip; compact?: boolean }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: chip.id,
   });
+  // In the automatic-placement tray, chips are taller + auto-width so many wrap
+  // compactly; in a block column they stack full-width.
+  const shape = compact
+    ? "inline-flex w-auto flex-col items-start px-3 py-2 leading-tight"
+    : "block w-full px-2 py-1";
   return (
     <button
       ref={setNodeRef}
       {...listeners}
       {...attributes}
       style={transform ? { transform: `translate(${transform.x}px, ${transform.y}px)` } : undefined}
-      className={`block w-full cursor-grab rounded-md bg-brand-600 px-2 py-1 text-left text-xs text-white ${
+      className={`cursor-grab rounded-md bg-brand-600 text-left text-xs text-white ${shape} ${
         isDragging ? "opacity-50" : ""
       }`}
     >
-      {chip.subject}{" "}
+      <span>{chip.subject}</span>
       <span className="opacity-70">·{chip.capacity}</span>
     </button>
   );

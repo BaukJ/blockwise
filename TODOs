@@ -16,3 +16,7 @@
 [x]  Add a "clone timetable button" that lets you chose what's cloned (subject, students, student choices). Each with a checkbox, some dependant on other checkboxes being ticket.
 [x]  When running the processing and the teacher selects one of the block options (let blockwise chose, pick from previous, use custom), the 2 last dropdowns should pre-populate a drag and drop interface where the teacher can pull classes into blocks. If they are left at the bottom, they can go anywhere. So if they chose pick from previous, the drag and drop auto-populates with the chosen run blocks. If they chose custom it should be an empty drag and drop. The bottom where they unchosed classes are should clearly be labeled as "automatic placement".
 
+[x]  For "Let blockwise place everything" the drag and drop should not even be shown.
+[x]  The drag and drop isn't great, can you update it so the cards are thicker (y axis) and shorter (x-axis) when they are in the automatic placement at the bottom so that we can fit
+[x]  The "finalise this solution" button doesn't update the UI. Would be good if it did.
+[x]  There should be a delete and clone button on the timetables list. (delete should have a confirmation and warning)
