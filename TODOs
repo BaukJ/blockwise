@@ -20,3 +20,8 @@
 [x]  The drag and drop isn't great, can you update it so the cards are thicker (y axis) and shorter (x-axis) when they are in the automatic placement at the bottom so that we can fit
 [x]  The "finalise this solution" button doesn't update the UI. Would be good if it did.
 [x]  There should be a delete and clone button on the timetables list. (delete should have a confirmation and warning)
+
+[x]  Have a small email icon next to the student names for those that were setup via email. Improve the "Paste student emails (comma, space or newline separated). They’ll fill in their own choices." message so that it's clear that once they sign up with that email they will be able to fill in their choices.
+[x]  Have a checkbox next to the "Add students" button to email all the students. The email will tell them that they need to sign up (or login) and fill in their choices for that timetable.
+[x]  Emails should be setup via SES
+[x]  There should be a "magic link" button next to each student that is in draft status, so that they can be sent a one-time, time-boxed link to fill in their details without needing to sign in.

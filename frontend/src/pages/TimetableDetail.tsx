@@ -451,6 +451,7 @@ function StudentsCard({
 }) {
   const [mode, setMode] = useState(tt.entry_mode);
   const [editing, setEditing] = useState<Entry | null>(null);
+  const [magic, setMagic] = useState<{ url: string; emailed: boolean } | null>(null);
   const subjects = tt.subjects.map((s) => s.subject);
 
   async function setEntryMode(m: typeof tt.entry_mode) {
@@ -469,7 +470,19 @@ function StudentsCard({
     onChanged();
   }
 
-  const actions = { onEdit: setEditing, onRevert: revertEntry, onDelete: deleteEntry };
+  async function magicLink(key: string) {
+    const res = await api.post<{ url: string; emailed: boolean }>(
+      `/timetable/${tt.id}/entries/${encodeURIComponent(key)}/magic-link`,
+    );
+    setMagic(res);
+  }
+
+  const actions = {
+    onEdit: setEditing,
+    onRevert: revertEntry,
+    onDelete: deleteEntry,
+    onMagicLink: magicLink,
+  };
 
   return (
     <div className="card space-y-4">
@@ -516,6 +529,7 @@ function StudentsCard({
           }}
         />
       )}
+      {magic && <MagicLinkModal {...magic} onClose={() => setMagic(null)} />}
     </div>
   );
 }
@@ -524,6 +538,53 @@ interface EntryActions {
   onEdit: (e: Entry) => void;
   onRevert: (key: string) => void;
   onDelete: (key: string) => void;
+  onMagicLink: (key: string) => void;
+}
+
+function MagicLinkModal({
+  url,
+  emailed,
+  onClose,
+}: {
+  url: string;
+  emailed: boolean;
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div
+      className="fixed inset-0 z-20 grid place-items-center bg-black/30 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md space-y-3 rounded-xl bg-white p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="font-semibold">One-time fill-in link</h3>
+        <p className="text-sm text-slate-500">
+          Valid for 7 days and only until the student submits. They won’t need to log
+          in.{emailed && " It’s also been emailed to them."}
+        </p>
+        <div className="flex gap-2">
+          <input className="input font-mono text-xs" readOnly value={url} />
+          <button
+            className="btn-primary"
+            onClick={() => {
+              navigator.clipboard?.writeText(url);
+              setCopied(true);
+            }}
+          >
+            {copied ? "Copied" : "Copy"}
+          </button>
+        </div>
+        <div className="flex justify-end">
+          <button className="btn-ghost" onClick={onClose}>
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 const STATUS_LABELS: Record<EntryStatus, { label: string; cls: string }> = {
@@ -555,7 +616,14 @@ function EntryTable({ entries, actions }: { entries: Entry[]; actions: EntryActi
       <tbody>
         {entries.map((e) => (
           <tr key={e.student_key} className="border-t border-slate-100">
-            <td className="py-1.5">{e.name}</td>
+            <td className="py-1.5">
+              <span className="inline-flex items-center gap-1">
+                {e.student_email && (
+                  <span title="Added by email — fills in their own choices">✉️</span>
+                )}
+                {e.name}
+              </span>
+            </td>
             <td className="text-slate-500">{e.choices.join(", ") || "—"}</td>
             <td className="text-slate-500">{e.backups.join(", ") || "—"}</td>
             <td>
@@ -569,6 +637,14 @@ function EntryTable({ entries, actions }: { entries: Entry[]; actions: EntryActi
                 >
                   Edit
                 </button>
+                {(e.status === "pending" || e.status === "draft") && (
+                  <button
+                    className="text-brand-600 hover:underline"
+                    onClick={() => actions.onMagicLink(e.student_key)}
+                  >
+                    Magic link
+                  </button>
+                )}
                 {(e.status === "submitted" || e.status === "teacher_submitted") && (
                   <button
                     className="text-slate-500 hover:underline"
@@ -821,6 +897,7 @@ function EmailEntry({
   actions: EntryActions;
 }) {
   const [text, setText] = useState("");
+  const [notify, setNotify] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
   async function add() {
@@ -836,7 +913,7 @@ function EmailEntry({
       return;
     }
     try {
-      await api.post(`/timetable/${tt.id}/entries/emails`, { emails });
+      await api.post(`/timetable/${tt.id}/entries/emails`, { emails, notify });
       setText("");
       onChanged();
     } catch (e) {
@@ -860,8 +937,9 @@ function EmailEntry({
       )}
       <div className="space-y-2 rounded-lg bg-slate-50 p-3">
         <p className="text-xs text-slate-500">
-          Paste student emails (comma, space or newline separated). They’ll fill in
-          their own choices.
+          Paste student emails (comma, space or newline separated). Once a student
+          signs up or logs in with the same email address, this timetable appears in
+          their list and they can fill in their own choices.
         </p>
         <textarea
           className="input h-24 text-sm"
@@ -870,9 +948,19 @@ function EmailEntry({
           placeholder="alice@school.edu, bob@school.edu"
         />
         {err && <p className="text-sm text-red-600">{err}</p>}
-        <button className="btn-primary" onClick={add} disabled={!text.trim()}>
-          Add students
-        </button>
+        <div className="flex items-center justify-between">
+          <label className="flex items-center gap-2 text-sm text-slate-600">
+            <input
+              type="checkbox"
+              checked={notify}
+              onChange={(e) => setNotify(e.target.checked)}
+            />
+            Email students an invite to sign up and fill in their choices
+          </label>
+          <button className="btn-primary" onClick={add} disabled={!text.trim()}>
+            Add students
+          </button>
+        </div>
       </div>
       <EntryTable entries={entries} actions={actions} />
     </div>

@@ -22,13 +22,16 @@ function blockLetters(n: number): string[] {
   return Array.from({ length: n }, (_, i) => String.fromCharCode(65 + i));
 }
 
-// One chip per class declared in the timetable's subjects.
+// One chip per class declared in the timetable's subjects. IDs are a running index
+// so duplicate subject rows (e.g. two Maths classes with different capacities) stay
+// distinct — same-name subjects are explicitly supported.
 function buildChips(tt: Timetable): ClassChip[] {
   const chips: ClassChip[] = [];
+  let idx = 0;
   for (const s of tt.subjects) {
     for (let k = 0; k < s.total_classes; k++) {
       chips.push({
-        id: `${s.subject}#${k}`,
+        id: `c${idx++}`,
         subject: s.subject,
         capacity: s.class_capacity,
       });
@@ -82,8 +85,13 @@ export default function Processing({
       const pool = [...chips];
       for (const [block, subjs] of Object.entries(bc)) {
         for (const [subject, caps] of Object.entries(subjs)) {
-          for (let i = 0; i < caps.length; i++) {
-            const idx = pool.findIndex((c) => c.subject === subject);
+          for (const cap of caps) {
+            // Prefer a chip matching both subject and capacity (handles same-named
+            // classes of different sizes), else fall back to any of that subject.
+            let idx = pool.findIndex(
+              (c) => c.subject === subject && c.capacity === cap,
+            );
+            if (idx < 0) idx = pool.findIndex((c) => c.subject === subject);
             if (idx >= 0) {
               next[pool[idx].id] = blocks.includes(block) ? block : AUTO;
               pool.splice(idx, 1);

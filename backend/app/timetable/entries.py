@@ -17,9 +17,13 @@ from app.models import (
     entry_ready,
     status_for_choices,
 )
+from app.config import frontend_url
+from app.email import send_email
 from app.rules import rules_error
-from app.security import get_current_user
+from app.security import get_current_user, make_timed_token
 from app.timetable.routes import owned_or_404
+
+MAGIC_SALT = "magic-fill"
 
 router = APIRouter(prefix="/timetable", tags=["entries"])
 
@@ -54,6 +58,7 @@ class CsvIn(BaseModel):
 
 class EmailsIn(BaseModel):
     emails: list[EmailStr]
+    notify: bool = False  # email each student an invite to sign up + fill in
 
 
 class ProgressOut(BaseModel):
@@ -243,22 +248,56 @@ def add_emails(
     for email in body.emails:
         addr = str(email).lower()
         try:
-            existing = EntryModel.get(timetable_id, addr)
-            created.append(existing)
-            continue
+            entry = EntryModel.get(timetable_id, addr)
         except EntryModel.DoesNotExist:
-            pass
-        entry = EntryModel(
-            timetable_id=timetable_id,
-            student_key=addr,
-            name=addr,
-            student_email=addr,
-            choices=[],
-            status=EntryStatus.PENDING.value,
-        )
-        entry.save()
+            entry = EntryModel(
+                timetable_id=timetable_id,
+                student_key=addr,
+                name=addr,
+                student_email=addr,
+                choices=[],
+                status=EntryStatus.PENDING.value,
+            )
+            entry.save()
         created.append(entry)
+        if body.notify:
+            send_email(
+                addr,
+                f"Choose your subjects for {tt.name}",
+                f"You've been added to '{tt.name}' on Blockwise.\n\n"
+                f"Sign up or log in with this email address ({addr}) to fill in your "
+                f"subject choices:\n{frontend_url('/')}\n",
+            )
     return [serialize(e) for e in created]
+
+
+@router.post("/{timetable_id}/entries/{student_key}/magic-link")
+def magic_link(
+    timetable_id: str, student_key: str, user: UserModel = Depends(get_current_user)
+):
+    """Mint a one-time, time-boxed link letting a draft student fill in their choices
+    without signing in. Emails it to the student when we have their address."""
+    owned_or_404(timetable_id, user)
+    try:
+        entry = EntryModel.get(timetable_id, student_key)
+    except EntryModel.DoesNotExist:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    if entry_ready(entry.status):
+        raise HTTPException(status_code=400, detail="This student has already submitted")
+
+    token = make_timed_token(
+        {"tid": timetable_id, "key": student_key}, MAGIC_SALT
+    )
+    url = frontend_url(f"/fill?token={token}")
+    emailed = False
+    if entry.student_email:
+        send_email(
+            entry.student_email,
+            "Your subject-choice link",
+            f"Use this link to fill in your subject choices (valid for 7 days):\n{url}\n",
+        )
+        emailed = True
+    return {"url": url, "emailed": emailed}
 
 
 @router.post("/{timetable_id}/subjects/csv")

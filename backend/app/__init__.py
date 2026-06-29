@@ -12,6 +12,7 @@ from app.auth import router as auth_router
 from app.timetable import router as timetable_router
 from app.jobs import router as jobs_router
 from app.student import router as student_router
+from app.public import router as public_router
 
 logging.basicConfig(level=settings.log_level)
 
@@ -36,6 +37,7 @@ def create_app() -> FastAPI:
     api.include_router(timetable_router)
     api.include_router(jobs_router)
     api.include_router(student_router)
+    api.include_router(public_router)
 
     if settings.admin_endpoints_enabled:
         from app.admin import router as admin_router

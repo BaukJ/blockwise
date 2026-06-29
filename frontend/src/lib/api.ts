@@ -133,6 +133,17 @@ export interface StudentTimetable {
   initial_assignment: Record<string, string> | null;
 }
 
+export interface PublicFill {
+  timetable_name: string;
+  subjects: Subject[];
+  options_required: number;
+  backups_allowed: number;
+  rules: Rule[];
+  my_choices: string[];
+  my_backups: string[];
+  submitted: boolean;
+}
+
 export interface SolveResult {
   block_classes: Record<string, Record<string, number[]>>;
   student_block_map: Record<string, Record<string, string>>;

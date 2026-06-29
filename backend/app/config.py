@@ -44,3 +44,10 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def frontend_url(path: str) -> str:
+    """Absolute URL to a frontend route (used in emails / magic links)."""
+    scheme = "http" if settings.is_local else "https"
+    host = "localhost" if settings.is_local else settings.domain
+    return f"{scheme}://{host}{path}"

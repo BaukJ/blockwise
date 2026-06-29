@@ -6,6 +6,7 @@ import Protected from "./components/Protected";
 import Login from "./pages/Login";
 import Verify from "./pages/Verify";
 import Reset from "./pages/Reset";
+import Fill from "./pages/Fill";
 import RoleChoice from "./pages/RoleChoice";
 import Home from "./pages/Home";
 import TeacherDashboard from "./pages/TeacherDashboard";
@@ -22,6 +23,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="/login" element={<Login />} />
           <Route path="/verify" element={<Verify />} />
           <Route path="/reset" element={<Reset />} />
+          <Route path="/fill" element={<Fill />} />
           <Route path="/" element={<Protected><Home /></Protected>} />
           <Route path="/choose" element={<Protected><RoleChoice /></Protected>} />
           <Route path="/teacher" element={<Protected><TeacherDashboard /></Protected>} />
