@@ -1,3 +1,17 @@
 __pycache__/
 *.pyc
 data/
+venv/
+.venv/
+.env
+.env.local
+node_modules/
+frontend/dist/
+.docker/
+*.log
+.DS_Store
+output/
+.terraform/
+*.tfstate
+*.tfstate.*
+terraform/.terraform.lock.hcl

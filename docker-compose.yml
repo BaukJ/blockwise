@@ -1,0 +1,50 @@
+services:
+  dynamodb:
+    image: amazon/dynamodb-local:latest
+    # Persist to a named volume. Run as root so the container can write to it
+    # (the dynamodblocal user can't write a docker-managed volume by default).
+    user: root
+    command: "-jar DynamoDBLocal.jar -sharedDb -dbPath /home/dynamodblocal/data"
+    volumes:
+      - dynamodb-data:/home/dynamodblocal/data
+    ports:
+      - "8000:8000"
+    environment:
+      AWS_ACCESS_KEY_ID: dummy
+      AWS_SECRET_ACCESS_KEY: dummy
+      AWS_DEFAULT_REGION: eu-west-1
+
+  backend:
+    build: backend
+    volumes:
+      - ./backend:/app
+    ports:
+      - "5000:5000"
+    environment:
+      DOMAIN: localhost
+      DYNAMODB_HOST: http://dynamodb:8000
+      AWS_ACCESS_KEY_ID: dummy
+      AWS_SECRET_ACCESS_KEY: dummy
+      AWS_DEFAULT_REGION: eu-west-1
+      ADMIN_ENDPOINTS_ENABLED: "true"
+      SECRET_KEY: dev-insecure-secret-change-me
+    env_file:
+      - .env
+    command: ["--reload", "--log-level=debug"]
+    depends_on:
+      - dynamodb
+
+  # Optional: serves the built frontend (frontend/dist) like production.
+  # For day-to-day work prefer `cd frontend && npm run dev` (Vite, port 5173).
+  frontend:
+    image: nginx:alpine
+    volumes:
+      - ./frontend/dist:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  dynamodb-data:
