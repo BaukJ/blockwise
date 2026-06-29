@@ -6,7 +6,14 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.models import EntryModel, JobModel, TimetableModel, UserModel
+from app.models import (
+    EntryModel,
+    EntryStatus,
+    JobModel,
+    TimetableModel,
+    UserModel,
+    entry_ready,
+)
 from app.security import get_current_user
 
 router = APIRouter(prefix="/student", tags=["student"])
@@ -106,7 +113,7 @@ def my_timetables(user: UserModel = Depends(get_current_user)):
                 timetable_id=tt.id,
                 name=tt.name,
                 deadline=tt.deadline,
-                submitted=bool(e.submitted),
+                submitted=entry_ready(e.status),
                 finalised=bool(tt.finalised_job_id),
                 reassignment_enabled=bool(tt.reassignment_enabled),
             )
@@ -148,7 +155,7 @@ def get_one(timetable_id: str, user: UserModel = Depends(get_current_user)):
         num_blocks=int(tt.num_blocks),
         my_choices=list(entry.choices or []),
         my_backup=entry.backup,
-        submitted=bool(entry.submitted),
+        submitted=entry_ready(entry.status),
         finalised=bool(job),
         reassignment_enabled=bool(tt.reassignment_enabled),
         my_assignment=my_assignment,
@@ -162,16 +169,18 @@ def submit(
     timetable_id: str, body: SubmitIn, user: UserModel = Depends(get_current_user)
 ):
     entry = _my_entry(timetable_id, user.email)
-    if entry.submitted:
+    if entry_ready(entry.status):
         raise HTTPException(status_code=409, detail="Choices already submitted")
     choices = [c.strip() for c in body.choices if c.strip()]
+    if len(choices) != 4:
+        raise HTTPException(status_code=400, detail="Please rank four choices")
     if len(choices) != len(set(choices)):
         raise HTTPException(status_code=400, detail="Choices must be distinct")
     entry.update(
         actions=[
             EntryModel.choices.set(choices),
             EntryModel.backup.set((body.backup or "").strip() or None),
-            EntryModel.submitted.set(True),
+            EntryModel.status.set(EntryStatus.SUBMITTED.value),
             EntryModel.submitted_at.set(datetime.now(timezone.utc)),
         ]
     )

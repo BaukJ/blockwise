@@ -9,7 +9,14 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.config import settings
-from app.models import EntryModel, JobModel, JobStatus, TimetableModel, UserModel
+from app.models import (
+    EntryModel,
+    JobModel,
+    JobStatus,
+    TimetableModel,
+    UserModel,
+    entry_ready,
+)
 from app.security import get_current_user
 from app.solver import run_job
 from app.timetable.routes import owned_or_404
@@ -65,7 +72,7 @@ def _subjects_dict(tt: TimetableModel) -> dict[str, list[int]]:
 def _students(timetable_id: str) -> list[dict]:
     students = []
     for e in EntryModel.query(timetable_id):
-        if not e.submitted:
+        if not entry_ready(e.status):
             continue
         students.append(
             {"name": e.name, "choices": list(e.choices or []), "backup": e.backup}

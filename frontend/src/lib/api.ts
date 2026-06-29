@@ -41,11 +41,23 @@ async function request<T>(
     }
   }
   if (!res.ok) {
-    const detail =
-      (data && (data.detail || data.message)) || res.statusText || "Request failed";
-    throw new ApiError(res.status, String(detail));
+    throw new ApiError(res.status, extractError(data) || res.statusText || "Request failed");
   }
   return data as T;
+}
+
+// FastAPI returns `detail` as a string OR, for validation errors, a list of
+// {loc, msg, ...} objects. Flatten either into a readable sentence.
+function extractError(data: any): string {
+  const detail = data?.detail ?? data?.message ?? data;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((d) => (typeof d === "string" ? d : d?.msg ?? JSON.stringify(d)))
+      .join("; ");
+  }
+  if (detail && typeof detail === "object") return detail.msg ?? JSON.stringify(detail);
+  return "";
 }
 
 export const api = {
@@ -68,12 +80,15 @@ export interface Subject {
   class_capacity: number;
 }
 
+export type EntryStatus = "pending" | "draft" | "submitted" | "teacher_submitted";
+
 export interface Entry {
   student_key: string;
   name: string;
   student_email: string | null;
   choices: string[];
   backup: string | null;
+  status: EntryStatus;
   submitted: boolean;
   submitted_at: string | null;
 }

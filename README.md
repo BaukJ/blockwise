@@ -12,8 +12,15 @@ Three parts, mirroring the `tallio` layout:
   served from S3 / CloudFront.
 - **`terraform/`** — Lambda, worker Lambda, S3, CloudFront, DynamoDB, SES, Route53.
 
-The solver itself lives in `backend/app/solver/` (see `docs-solver.md` for the
-original ILP CLI it was derived from).
+The solver itself lives in `backend/app/solver/`. The original command-line workflow
+is preserved at `scripts/timetable.py`, which imports that same solver (see
+`docs-solver.md` for the input/output formats):
+
+```bash
+cd examples
+uv run ../scripts/timetable.py subjects.csv students.csv --output-dir out/
+uv run ../scripts/timetable.py students.csv --blocks-csv out/blocks.csv --output-dir fixed/
+```
 
 ## Run locally
 

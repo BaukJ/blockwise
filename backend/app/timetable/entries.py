@@ -8,7 +8,15 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
 
-from app.models import EntryMode, EntryModel, TimetableModel, UserModel
+from app.models import (
+    EntryMode,
+    EntryModel,
+    EntryStatus,
+    TimetableModel,
+    UserModel,
+    entry_ready,
+    status_for_choices,
+)
 from app.security import get_current_user
 from app.timetable.routes import owned_or_404
 
@@ -23,13 +31,19 @@ class EntryIn(BaseModel):
     student_email: EmailStr | None = None
 
 
+class ChoicesIn(BaseModel):
+    choices: list[str] = []
+    backup: str | None = None
+
+
 class EntryOut(BaseModel):
     student_key: str
     name: str
     student_email: str | None
     choices: list[str]
     backup: str | None
-    submitted: bool
+    status: str
+    submitted: bool  # derived: ready for processing
     submitted_at: datetime | None
 
 
@@ -58,7 +72,8 @@ def serialize(e: EntryModel) -> EntryOut:
         student_email=e.student_email,
         choices=list(e.choices or []),
         backup=e.backup,
-        submitted=bool(e.submitted),
+        status=e.status,
+        submitted=entry_ready(e.status),
         submitted_at=e.submitted_at,
     )
 
@@ -80,16 +95,67 @@ def upsert_entry(
 ):
     owned_or_404(timetable_id, user)
     key = _key(body.name, body.student_email)
+    choices = [c.strip() for c in body.choices if c.strip()]
     entry = EntryModel(
         timetable_id=timetable_id,
         student_key=key,
         name=body.name.strip(),
         student_email=(body.student_email or None) and body.student_email.lower(),
-        choices=[c.strip() for c in body.choices if c.strip()],
+        choices=choices,
         backup=(body.backup or "").strip() or None,
-        submitted=False,
+        status=status_for_choices(choices, teacher=True),
+        submitted_at=datetime.now(timezone.utc) if len(choices) >= 4 else None,
     )
     entry.save()
+    return serialize(entry)
+
+
+@router.patch("/{timetable_id}/entries/{student_key}", response_model=EntryOut)
+def edit_choices(
+    timetable_id: str,
+    student_key: str,
+    body: ChoicesIn,
+    user: UserModel = Depends(get_current_user),
+):
+    """Teacher edits a student's choices. Complete → teacher_submitted, else draft."""
+    owned_or_404(timetable_id, user)
+    try:
+        entry = EntryModel.get(timetable_id, student_key)
+    except EntryModel.DoesNotExist:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    choices = [c.strip() for c in body.choices if c.strip()]
+    if len(choices) != len(set(choices)):
+        raise HTTPException(status_code=400, detail="Choices must be distinct")
+    status = status_for_choices(choices, teacher=True)
+    entry.update(
+        actions=[
+            EntryModel.choices.set(choices),
+            EntryModel.backup.set((body.backup or "").strip() or None),
+            EntryModel.status.set(status),
+            EntryModel.submitted_at.set(
+                datetime.now(timezone.utc) if len(choices) >= 4 else None
+            ),
+        ]
+    )
+    return serialize(entry)
+
+
+@router.post("/{timetable_id}/entries/{student_key}/revert", response_model=EntryOut)
+def revert_to_draft(
+    timetable_id: str, student_key: str, user: UserModel = Depends(get_current_user)
+):
+    """Reopen an entry for editing (by the teacher or, for roster entries, the student)."""
+    owned_or_404(timetable_id, user)
+    try:
+        entry = EntryModel.get(timetable_id, student_key)
+    except EntryModel.DoesNotExist:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    entry.update(
+        actions=[
+            EntryModel.status.set(EntryStatus.DRAFT.value),
+            EntryModel.submitted_at.set(None),
+        ]
+    )
     return serialize(entry)
 
 
@@ -132,8 +198,9 @@ def import_csv(
             name=name,
             choices=choices,
             backup=backup,
-            submitted=bool(choices),  # CSV rows arrive already filled in
-            submitted_at=datetime.now(timezone.utc) if choices else None,
+            # Teacher-imported: complete → teacher_submitted, partial → draft.
+            status=status_for_choices(choices, teacher=True),
+            submitted_at=datetime.now(timezone.utc) if len(choices) >= 4 else None,
         )
         entry.save()
         created.append(entry)
@@ -164,7 +231,7 @@ def add_emails(
             name=addr,
             student_email=addr,
             choices=[],
-            submitted=False,
+            status=EntryStatus.PENDING.value,
         )
         entry.save()
         created.append(entry)
@@ -202,6 +269,6 @@ def import_subjects_csv(
 def progress(timetable_id: str, user: UserModel = Depends(get_current_user)):
     owned_or_404(timetable_id, user)
     entries = _list(timetable_id)
-    submitted = [e for e in entries if e.submitted]
-    pending = [e.name for e in entries if not e.submitted]
-    return ProgressOut(total=len(entries), submitted=len(submitted), pending=sorted(pending))
+    ready = [e for e in entries if entry_ready(e.status)]
+    pending = [e.name for e in entries if not entry_ready(e.status)]
+    return ProgressOut(total=len(entries), submitted=len(ready), pending=sorted(pending))

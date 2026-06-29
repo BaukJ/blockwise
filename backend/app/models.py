@@ -66,6 +66,29 @@ class EntryMode(str, Enum):
     STUDENTS = "students"  # students fill their own choices
 
 
+class EntryStatus(str, Enum):
+    PENDING = "pending"                    # assigned to a student, awaiting them
+    DRAFT = "draft"                        # incomplete / reverted, still editable
+    SUBMITTED = "submitted"                # student submitted (locked for student)
+    TEACHER_SUBMITTED = "teacher_submitted"  # teacher entered complete choices
+
+
+# Statuses that count as ready for processing.
+READY_STATUSES = {EntryStatus.SUBMITTED.value, EntryStatus.TEACHER_SUBMITTED.value}
+
+
+def entry_ready(status: str | None) -> bool:
+    return status in READY_STATUSES
+
+
+def status_for_choices(choices: list[str], teacher: bool) -> str:
+    """Derive status from how complete the choices are."""
+    complete = len([c for c in (choices or []) if c]) >= 4
+    if complete:
+        return (EntryStatus.TEACHER_SUBMITTED if teacher else EntryStatus.SUBMITTED).value
+    return (EntryStatus.DRAFT if teacher else EntryStatus.PENDING).value
+
+
 class UserModel(Model):
     class Meta(_Meta):
         table_name = _table("users")
@@ -131,7 +154,7 @@ class EntryModel(Model):
     name = UnicodeAttribute()
     choices = ListAttribute(default=list)  # [c1, c2, c3, c4]
     backup = UnicodeAttribute(null=True)
-    submitted = BooleanAttribute(default=False)
+    status = UnicodeAttribute(default=EntryStatus.PENDING.value)
     submitted_at = UTCDateTimeAttribute(null=True)
     # Original choices preserved when reassignment opens them back up.
     initial_choices = ListAttribute(null=True)
