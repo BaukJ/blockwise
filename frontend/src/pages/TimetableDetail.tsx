@@ -6,10 +6,13 @@ import {
   type Entry,
   type EntryStatus,
   type Progress,
+  type Rule,
   type Subject,
   type Timetable,
 } from "../lib/api";
 import Processing from "../components/Processing";
+import ChoiceFields from "../components/ChoiceFields";
+import { checkRules } from "../lib/rules";
 
 function readFile(e: React.ChangeEvent<HTMLInputElement>, onText: (t: string) => void) {
   const file = e.target.files?.[0];
@@ -53,6 +56,7 @@ export default function TimetableDetail() {
 
       <SettingsCard tt={tt} onSaved={load} />
       <SubjectsCard tt={tt} onSaved={load} />
+      <RulesCard tt={tt} onSaved={load} />
       <StudentsCard tt={tt} entries={entries} progress={progress} onChanged={load} />
       <Processing tt={tt} />
     </div>
@@ -63,38 +67,38 @@ export default function TimetableDetail() {
 function SettingsCard({ tt, onSaved }: { tt: Timetable; onSaved: () => void }) {
   const [name, setName] = useState(tt.name);
   const [numBlocks, setNumBlocks] = useState(tt.num_blocks);
+  const [optionsRequired, setOptionsRequired] = useState(tt.options_required);
+  const [backupsAllowed, setBackupsAllowed] = useState(tt.backups_allowed);
   const [deadline, setDeadline] = useState(tt.deadline?.slice(0, 10) ?? "");
   const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
   async function save() {
+    setErr(null);
     setSaving(true);
-    await api.patch(`/timetable/${tt.id}`, {
-      name,
-      num_blocks: numBlocks,
-      deadline: deadline ? new Date(deadline).toISOString() : null,
-    });
-    setSaving(false);
-    onSaved();
+    try {
+      await api.patch(`/timetable/${tt.id}`, {
+        name,
+        num_blocks: numBlocks,
+        options_required: optionsRequired,
+        backups_allowed: backupsAllowed,
+        deadline: deadline ? new Date(deadline).toISOString() : null,
+      });
+      onSaved();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
     <div className="card space-y-4">
       <h2 className="font-semibold">Settings</h2>
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2">
         <label className="block text-sm">
           <span className="mb-1 block text-slate-500">Name</span>
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
-        <label className="block text-sm">
-          <span className="mb-1 block text-slate-500">Blocks</span>
-          <input
-            className="input"
-            type="number"
-            min={1}
-            max={10}
-            value={numBlocks}
-            onChange={(e) => setNumBlocks(Number(e.target.value))}
-          />
         </label>
         <label className="block text-sm">
           <span className="mb-1 block text-slate-500">Deadline</span>
@@ -106,6 +110,45 @@ function SettingsCard({ tt, onSaved }: { tt: Timetable; onSaved: () => void }) {
           />
         </label>
       </div>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <label className="block text-sm">
+          <span className="mb-1 block text-slate-500">Blocks</span>
+          <input
+            className="input"
+            type="number"
+            min={1}
+            max={8}
+            value={numBlocks}
+            onChange={(e) => setNumBlocks(Number(e.target.value))}
+          />
+        </label>
+        <label className="block text-sm">
+          <span className="mb-1 block text-slate-500">Choices per student</span>
+          <input
+            className="input"
+            type="number"
+            min={1}
+            max={numBlocks}
+            value={optionsRequired}
+            onChange={(e) => setOptionsRequired(Number(e.target.value))}
+          />
+        </label>
+        <label className="block text-sm">
+          <span className="mb-1 block text-slate-500">Backups allowed</span>
+          <input
+            className="input"
+            type="number"
+            min={0}
+            max={8}
+            value={backupsAllowed}
+            onChange={(e) => setBackupsAllowed(Number(e.target.value))}
+          />
+        </label>
+      </div>
+      <p className="text-xs text-slate-400">
+        Choices per student can’t exceed the number of blocks.
+      </p>
+      {err && <p className="text-sm text-red-600">{err}</p>}
       <button className="btn-primary" onClick={save} disabled={saving}>
         {saving ? "Saving…" : "Save settings"}
       </button>
@@ -241,6 +284,144 @@ function SubjectsCard({ tt, onSaved }: { tt: Timetable; onSaved: () => void }) {
   );
 }
 
+// ── Rules (item 14) ──────────────────────────────────────────────────────────
+function describeRule(r: Rule): string {
+  if (r.type === "position_in")
+    return `Choice ${r.position} must be one of: ${r.subjects.join(", ")}`;
+  if (r.type === "require_one_of")
+    return `Must pick at least ${r.min} of: ${r.subjects.join(", ")}`;
+  return `${r.subjects.join(", ")} only allowed at choice ${r.positions.join(", ")}`;
+}
+
+function RulesCard({ tt, onSaved }: { tt: Timetable; onSaved: () => void }) {
+  const subjects = tt.subjects.map((s) => s.subject);
+  const [rules, setRules] = useState<Rule[]>(tt.rules);
+  const [type, setType] = useState<Rule["type"]>("position_in");
+  const [position, setPosition] = useState(1);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [minCount, setMinCount] = useState(1);
+  const [saving, setSaving] = useState(false);
+
+  function toggle(s: string) {
+    setPicked((p) => (p.includes(s) ? p.filter((x) => x !== s) : [...p, s]));
+  }
+
+  function addRule() {
+    if (picked.length === 0) return;
+    let rule: Rule;
+    if (type === "position_in") rule = { type, position, subjects: picked };
+    else if (type === "require_one_of") rule = { type, subjects: picked, min: minCount };
+    else rule = { type: "only_at", subjects: picked, positions: [position] };
+    setRules((r) => [...r, rule]);
+    setPicked([]);
+  }
+
+  async function save() {
+    setSaving(true);
+    await api.patch(`/timetable/${tt.id}`, { rules });
+    setSaving(false);
+    onSaved();
+  }
+
+  return (
+    <div className="card space-y-4">
+      <h2 className="font-semibold">Choice rules</h2>
+      {rules.length === 0 ? (
+        <p className="text-sm text-slate-400">
+          No rules — students can pick anything anywhere.
+        </p>
+      ) : (
+        <ul className="space-y-1 text-sm">
+          {rules.map((r, i) => (
+            <li
+              key={i}
+              className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2"
+            >
+              <span>{describeRule(r)}</span>
+              <button
+                className="text-slate-300 hover:text-red-600"
+                onClick={() => setRules((rs) => rs.filter((_, j) => j !== i))}
+              >
+                ✕
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="space-y-3 rounded-lg bg-slate-50 p-3">
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="text-sm">
+            <span className="mb-1 block text-slate-500">Rule</span>
+            <select
+              className="input"
+              value={type}
+              onChange={(e) => setType(e.target.value as Rule["type"])}
+            >
+              <option value="position_in">A choice must be one of…</option>
+              <option value="require_one_of">Must include at least one of…</option>
+              <option value="only_at">Subjects only allowed at a choice…</option>
+            </select>
+          </label>
+          {(type === "position_in" || type === "only_at") && (
+            <label className="text-sm">
+              <span className="mb-1 block text-slate-500">Choice #</span>
+              <input
+                className="input w-20"
+                type="number"
+                min={1}
+                max={tt.options_required}
+                value={position}
+                onChange={(e) => setPosition(Number(e.target.value))}
+              />
+            </label>
+          )}
+          {type === "require_one_of" && (
+            <label className="text-sm">
+              <span className="mb-1 block text-slate-500">At least</span>
+              <input
+                className="input w-20"
+                type="number"
+                min={1}
+                value={minCount}
+                onChange={(e) => setMinCount(Number(e.target.value))}
+              />
+            </label>
+          )}
+        </div>
+        <div>
+          <span className="mb-1 block text-xs text-slate-500">Subjects</span>
+          <div className="flex flex-wrap gap-2">
+            {subjects.length === 0 && (
+              <span className="text-xs text-slate-400">Add subjects first.</span>
+            )}
+            {subjects.map((s) => (
+              <button
+                key={s}
+                onClick={() => toggle(s)}
+                className={`rounded-full px-3 py-1 text-xs ring-1 ${
+                  picked.includes(s)
+                    ? "bg-brand-600 text-white ring-brand-600"
+                    : "bg-white text-slate-600 ring-slate-200"
+                }`}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
+        <button className="btn-ghost" onClick={addRule} disabled={picked.length === 0}>
+          + Add rule
+        </button>
+      </div>
+
+      <button className="btn-primary" onClick={save} disabled={saving}>
+        {saving ? "Saving…" : "Save rules"}
+      </button>
+    </div>
+  );
+}
+
 // ── Students ─────────────────────────────────────────────────────────────────
 const MODES = [
   { key: "ui", label: "Fill in here" },
@@ -367,7 +548,7 @@ function EntryTable({ entries, actions }: { entries: Entry[]; actions: EntryActi
           <tr key={e.student_key} className="border-t border-slate-100">
             <td className="py-1.5">{e.name}</td>
             <td className="text-slate-500">{e.choices.join(", ") || "—"}</td>
-            <td className="text-slate-500">{e.backup || "—"}</td>
+            <td className="text-slate-500">{e.backups.join(", ") || "—"}</td>
             <td>
               <StatusBadge status={e.status} />
             </td>
@@ -417,28 +598,30 @@ function EditChoicesModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [choices, setChoices] = useState<string[]>([
-    entry.choices[0] ?? "",
-    entry.choices[1] ?? "",
-    entry.choices[2] ?? "",
-    entry.choices[3] ?? "",
-  ]);
-  const [backup, setBackup] = useState(entry.backup ?? "");
+  const [choices, setChoices] = useState<string[]>(
+    Array.from({ length: tt.options_required }, (_, i) => entry.choices[i] ?? ""),
+  );
+  const [backups, setBackups] = useState<string[]>(
+    Array.from({ length: tt.backups_allowed }, (_, i) => entry.backups[i] ?? ""),
+  );
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  function optionsFor(i: number) {
-    const taken = new Set(choices.filter((_, j) => j !== i).filter(Boolean));
-    return subjects.filter((s) => !taken.has(s) || choices[i] === s);
-  }
-
   async function save() {
     setErr(null);
+    const filled = choices.filter(Boolean);
+    if (filled.length === tt.options_required) {
+      const violations = checkRules(tt.rules, filled);
+      if (violations.length) {
+        setErr(violations.join("; "));
+        return;
+      }
+    }
     setBusy(true);
     try {
       await api.patch(
         `/timetable/${tt.id}/entries/${encodeURIComponent(entry.student_key)}`,
-        { choices: choices.filter(Boolean), backup: backup || null },
+        { choices: filled, backups: backups.filter(Boolean) },
       );
       onSaved();
     } catch (e) {
@@ -458,40 +641,18 @@ function EditChoicesModal({
       >
         <h3 className="font-semibold">Edit choices — {entry.name}</h3>
         <p className="text-xs text-slate-400">
-          Fewer than four choices saves as a draft.
+          Fewer than {tt.options_required} choices saves as a draft.
         </p>
-        {[0, 1, 2, 3].map((i) => (
-          <label key={i} className="block text-sm">
-            <span className="mb-1 block text-slate-500">Choice {i + 1}</span>
-            <select
-              className="input"
-              value={choices[i]}
-              onChange={(e) =>
-                setChoices((c) => c.map((v, j) => (j === i ? e.target.value : v)))
-              }
-            >
-              <option value="">Select…</option>
-              {optionsFor(i).map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </label>
-        ))}
-        <label className="block text-sm">
-          <span className="mb-1 block text-slate-500">Backup</span>
-          <select className="input" value={backup} onChange={(e) => setBackup(e.target.value)}>
-            <option value="">None</option>
-            {subjects
-              .filter((s) => !choices.includes(s))
-              .map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-          </select>
-        </label>
+        <ChoiceFields
+          subjects={subjects}
+          optionsRequired={tt.options_required}
+          backupsAllowed={tt.backups_allowed}
+          rules={tt.rules}
+          choices={choices}
+          backups={backups}
+          setChoices={setChoices}
+          setBackups={setBackups}
+        />
         {err && <p className="text-sm text-red-600">{err}</p>}
         <div className="flex justify-end gap-2">
           <button className="btn-ghost" onClick={onClose}>
@@ -519,9 +680,11 @@ function UiEntry({
   onChanged: () => void;
   actions: EntryActions;
 }) {
+  const empty = () => Array.from({ length: tt.options_required }, () => "");
+  const emptyBackups = () => Array.from({ length: tt.backups_allowed }, () => "");
   const [name, setName] = useState("");
-  const [choices, setChoices] = useState<string[]>(["", "", "", ""]);
-  const [backup, setBackup] = useState("");
+  const [choices, setChoices] = useState<string[]>(empty);
+  const [backups, setBackups] = useState<string[]>(emptyBackups);
   const [err, setErr] = useState<string | null>(null);
   const nameRef = useRef<HTMLInputElement | null>(null);
 
@@ -529,15 +692,23 @@ function UiEntry({
     e.preventDefault();
     if (!name.trim()) return;
     setErr(null);
+    const filled = choices.filter(Boolean);
+    if (filled.length === tt.options_required) {
+      const violations = checkRules(tt.rules, filled);
+      if (violations.length) {
+        setErr(violations.join("; "));
+        return;
+      }
+    }
     try {
       await api.post(`/timetable/${tt.id}/entries`, {
         name: name.trim(),
-        choices: choices.filter(Boolean),
-        backup: backup || null,
+        choices: filled,
+        backups: backups.filter(Boolean),
       });
       setName("");
-      setChoices(["", "", "", ""]);
-      setBackup("");
+      setChoices(empty());
+      setBackups(emptyBackups());
       onChanged();
       // Ready for the next student straight away.
       requestAnimationFrame(() => nameRef.current?.focus());
@@ -549,45 +720,29 @@ function UiEntry({
   return (
     <div className="space-y-4">
       <EntryTable entries={entries} actions={actions} />
-      {err && <p className="text-sm text-red-600">{err}</p>}
-      <form onSubmit={add} className="grid gap-2 rounded-lg bg-slate-50 p-3 sm:grid-cols-6">
-        <input
-          className="input sm:col-span-1"
-          placeholder="Name"
-          value={name}
-          ref={nameRef}
-          onChange={(e) => setName(e.target.value)}
-        />
-        {[0, 1, 2, 3].map((i) => (
-          <select
-            key={i}
+      <form onSubmit={add} className="space-y-3 rounded-lg bg-slate-50 p-3">
+        <label className="block text-sm">
+          <span className="mb-1 block text-slate-500">Student name</span>
+          <input
             className="input"
-            value={choices[i]}
-            onChange={(e) =>
-              setChoices((c) => c.map((v, j) => (j === i ? e.target.value : v)))
-            }
-          >
-            <option value="">Choice {i + 1}</option>
-            {subjects.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-        ))}
-        <select
-          className="input"
-          value={backup}
-          onChange={(e) => setBackup(e.target.value)}
-        >
-          <option value="">Backup</option>
-          {subjects.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-        <button className="btn-primary sm:col-span-6">+ Add student</button>
+            placeholder="Name"
+            value={name}
+            ref={nameRef}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </label>
+        <ChoiceFields
+          subjects={subjects}
+          optionsRequired={tt.options_required}
+          backupsAllowed={tt.backups_allowed}
+          rules={tt.rules}
+          choices={choices}
+          backups={backups}
+          setChoices={setChoices}
+          setBackups={setBackups}
+        />
+        {err && <p className="text-sm text-red-600">{err}</p>}
+        <button className="btn-primary w-full">+ Add student</button>
       </form>
     </div>
   );

@@ -1,16 +1,23 @@
 """ILP timetable block solver.
 
-Ported from the original `timetable.py` CLI. File/stdout IO and process exits are
-gone: inputs are plain dicts/lists, results are returned, and infeasibility raises
+Inputs are plain dicts/lists, results are returned, and infeasibility raises
 `SolverError` (the worker turns that into a FAILED job with a readable message).
 
 Two modes:
   solve()              — auto: decide which subjects go in which block AND assign
-                         students. First two choices always honoured; backup use
-                         minimised.
+                         students.
   solve_fixed_blocks() — block layout is given; only student assignment is solved.
 
-Student shape: {"name": str, "choices": [c1, c2, c3, c4], "backup": str | None}
+Each student supplies an ordered preference list ("options" = their ranked choices
+followed by their backups, best first) and `n_choices` marking how many leading
+options are "real" choices vs backups. The solver fills every block with one option
+(or a wildcard when a student has fewer options than blocks) and MINIMISES a weighted
+penalty that grows with option rank — so it prefers honouring lower-numbered choices
+and will drop a student's choice 4 before another student's choice 3. Backups are just
+lower-priority options; wildcards are heavily penalised so they're used only as a last
+resort. There is no hard guarantee — the weighting makes top choices near-inviolable.
+
+Student shape: {"name": str, "options": [subj, ...], "n_choices": int}
 Subjects shape (auto): {subject_name: [class_capacity, ...]}  (one entry per class)
 Blocks shape (fixed):  {block_name: {subject_name: [class_capacity, ...]}}
 """
@@ -19,6 +26,10 @@ from __future__ import annotations
 from collections import defaultdict
 
 import pulp
+
+# Penalty for filling a block with a wildcard (any-subject) pick. Far larger than any
+# realistic option rank so real options are always preferred.
+WILDCARD_PENALTY = 10_000
 
 
 class SolverError(Exception):
@@ -44,8 +55,8 @@ def _check_status(prob, fixed: bool) -> None:
         raise SolverError(
             "No feasible assignment exists with these fixed blocks."
             if fixed
-            else "No feasible timetable exists — check subject capacity and that "
-            "mandatory choices don't create impossible conflicts."
+            else "No feasible timetable exists — check subject capacity is enough "
+            "for the number of students."
         )
     if sol == 0 or sol is None:
         raise SolverError(
@@ -53,23 +64,77 @@ def _check_status(prob, fixed: bool) -> None:
         )
 
 
+def _options(stu: dict) -> list[str]:
+    return [o for o in (stu.get("options") or []) if o]
+
+
 def validate_students(students: list[dict], known: set[str]) -> None:
     errors: list[str] = []
     for stu in students:
-        choices = stu.get("choices") or []
-        if len(choices) < 4:
-            errors.append(f"'{stu['name']}': needs 4 ranked choices (has {len(choices)})")
+        opts = _options(stu)
+        if not opts:
+            errors.append(f"'{stu['name']}': has no choices")
             continue
-        for opt in choices:
+        for opt in opts:
             if opt not in known:
                 errors.append(f"'{stu['name']}': unknown subject '{opt}'")
-        if len(set(choices)) != len(choices):
+        if len(set(opts)) != len(opts):
             errors.append(f"'{stu['name']}': duplicate subjects in choices")
-        backup = stu.get("backup")
-        if backup and backup not in known:
-            errors.append(f"'{stu['name']}': unknown backup '{backup}'")
     if errors:
         raise SolverError("Invalid student choices:\n  - " + "\n  - ".join(errors[:25]))
+
+
+def _build(prob, students, block_names, wild_pool: set[str]):
+    """Shared per-student variables, constraints and objective.
+
+    wild_pool is the set of subjects a wildcard may resolve to (all subjects in auto
+    mode; all offered subjects in fixed mode).
+
+    Returns (a, w) where:
+      a[p][i][b] — student p takes their option i in block b
+      w[p][s][b] — student p takes wildcard subject s in block b
+    """
+    a: dict = {}
+    w: dict = {}
+    penalty_terms = []
+
+    for p, stu in enumerate(students):
+        opts = _options(stu)
+        a[p] = {
+            i: {b: pulp.LpVariable(f"a_{p}_{i}_{b}", cat="Binary") for b in block_names}
+            for i in range(len(opts))
+        }
+        # Wildcard candidates: any offered subject the student didn't list.
+        w[p] = {
+            s: {b: pulp.LpVariable(f"w_{p}_{s}_{b}", cat="Binary") for b in block_names}
+            for s in wild_pool
+            if s not in opts
+        }
+
+        # One option (or wildcard) per block.
+        for b in block_names:
+            prob += (
+                pulp.lpSum(a[p][i][b] for i in range(len(opts)))
+                + pulp.lpSum(w[p][s][b] for s in w[p])
+                == 1,
+                f"fill_{p}_{b}",
+            )
+        # Each option / wildcard subject used at most once across blocks.
+        for i in range(len(opts)):
+            prob += (pulp.lpSum(a[p][i][b] for b in block_names) <= 1, f"once_{p}_{i}")
+        for s in w[p]:
+            prob += (pulp.lpSum(w[p][s][b] for b in block_names) <= 1, f"wonce_{p}_{s}")
+
+        # Objective: rank weight per kept option + heavy wildcard penalty.
+        for i in range(len(opts)):
+            for b in block_names:
+                penalty_terms.append(i * a[p][i][b])
+        for s in w[p]:
+            for b in block_names:
+                penalty_terms.append(WILDCARD_PENALTY * w[p][s][b])
+
+    prob += pulp.lpSum(penalty_terms), "minimise_dissatisfaction"
+    return a, w
 
 
 # ── Auto mode ──────────────────────────────────────────────────────────────────
@@ -81,12 +146,11 @@ def solve(
     threads: int = 1,
     verbose: bool = False,
 ) -> dict:
-    if not (2 <= n_blocks <= 5):
-        raise SolverError("Auto mode supports 2–5 blocks.")
+    if not (1 <= n_blocks <= 8):
+        raise SolverError("Number of blocks must be between 1 and 8.")
     validate_students(students, set(subjects))
 
     prob = pulp.LpProblem("timetable", pulp.LpMinimize)
-    n = len(students)
     subj_names = list(subjects.keys())
     blocks = _block_letters(n_blocks)
 
@@ -97,68 +161,24 @@ def solve(
         }
         for s in subj_names
     }
-    a = {
-        p: {
-            i: {b: pulp.LpVariable(f"a_{p}_{i}_{b}", cat="Binary") for b in blocks}
-            for i in range(5)
-        }
-        for p in range(n)
-    }
-    w: dict[int, dict[str, dict[str, pulp.LpVariable]]] = {}
-    for p, stu in enumerate(students):
-        if not stu.get("backup"):
-            candidates = [s for s in subj_names if s not in stu["choices"]]
-            w[p] = {
-                s: {b: pulp.LpVariable(f"w_{p}_{s}_{b}", cat="Binary") for b in blocks}
-                for s in candidates
-            }
-
-    prob += pulp.lpSum(a[p][4][b] for p in range(n) for b in blocks), "minimise_backup"
-
+    # Each class lands in exactly one block.
     for s in subj_names:
         for k in range(len(subjects[s])):
             prob += (pulp.lpSum(y[s][k][b] for b in blocks) == 1, f"class_{s}_{k}")
 
-    for p, stu in enumerate(students):
-        for i in (0, 1):
-            prob += (pulp.lpSum(a[p][i][b] for b in blocks) == 1, f"mand_{p}_{i}")
-        for b in blocks:
-            prob += (pulp.lpSum(a[p][i][b] for i in range(5)) == 1, f"oneper_{p}_{b}")
-        prob += (
-            pulp.lpSum(a[p][i][b] for i in (2, 3, 4) for b in blocks) == n_blocks - 2,
-            f"optional_{p}",
-        )
-        for i in range(5):
-            prob += (pulp.lpSum(a[p][i][b] for b in blocks) <= 1, f"once_{p}_{i}")
-        if not stu.get("backup"):
-            for b in blocks:
-                prob += (
-                    a[p][4][b] == pulp.lpSum(w[p][s][b] for s in w[p]),
-                    f"wild_{p}_{b}",
-                )
-        subj_to_opts: dict[str, list[int]] = defaultdict(list)
-        for i, subj in enumerate(stu["choices"]):
-            subj_to_opts[subj].append(i)
-        if stu.get("backup"):
-            subj_to_opts[stu["backup"]].append(4)
-        for subj, opts in subj_to_opts.items():
-            if len(opts) > 1:
-                prob += (
-                    pulp.lpSum(a[p][i][b] for i in opts for b in blocks) <= 1,
-                    f"nodup_{p}_{subj}",
-                )
+    a, w = _build(prob, students, blocks, set(subj_names))
 
+    # Capacity: students assigned to subject s in block b <= seats provided there.
     for s in subj_names:
         caps = subjects[s]
         for b in blocks:
             terms = []
             for p, stu in enumerate(students):
-                for i, opt in enumerate(stu["choices"]):
+                opts = _options(stu)
+                for i, opt in enumerate(opts):
                     if opt == s:
                         terms.append(a[p][i][b])
-                if stu.get("backup") == s:
-                    terms.append(a[p][4][b])
-                elif not stu.get("backup") and s in w.get(p, {}):
+                if s in w[p]:
                     terms.append(w[p][s][b])
             if terms:
                 prob += (
@@ -201,81 +221,33 @@ def solve_fixed_blocks(
     validate_students(students, known)
 
     prob = pulp.LpProblem("timetable_fixed", pulp.LpMinimize)
-    n = len(students)
     block_names = list(blocks.keys())
-
     total_cap = {
         b: {s: sum(caps) for s, caps in subjs.items()} for b, subjs in blocks.items()
     }
-    all_subjects: set[str] = set()
-    for subjs in blocks.values():
-        all_subjects.update(subjs.keys())
+    a, w = _build(prob, students, block_names, known)
 
-    a = {
-        p: {
-            i: {b: pulp.LpVariable(f"a_{p}_{i}_{b}", cat="Binary") for b in block_names}
-            for i in range(5)
-        }
-        for p in range(n)
-    }
-    w: dict[int, dict[str, dict[str, pulp.LpVariable]]] = {}
+    # Forbid options / wildcards in blocks that don't offer the subject.
     for p, stu in enumerate(students):
-        if not stu.get("backup"):
-            candidates = [s for s in all_subjects if s not in stu["choices"]]
-            w[p] = {
-                s: {
-                    b: pulp.LpVariable(f"w_{p}_{s}_{b}", cat="Binary")
-                    for b in block_names
-                    if s in blocks[b]
-                }
-                for s in candidates
-            }
-
-    prob += pulp.lpSum(a[p][4][b] for p in range(n) for b in block_names), "min_backup"
-
-    for p, stu in enumerate(students):
-        for i in (0, 1):
-            prob += (pulp.lpSum(a[p][i][b] for b in block_names) == 1, f"mand_{p}_{i}")
-        for b in block_names:
-            prob += (pulp.lpSum(a[p][i][b] for i in range(5)) == 1, f"oneper_{p}_{b}")
-        for i in range(5):
-            prob += (pulp.lpSum(a[p][i][b] for b in block_names) <= 1, f"once_{p}_{i}")
-        choices = stu["choices"]
-        backup = stu.get("backup")
-        for i, subj in enumerate(choices):
+        opts = _options(stu)
+        for i, subj in enumerate(opts):
             for b in block_names:
                 if subj not in blocks[b]:
                     prob += (a[p][i][b] == 0, f"noff_{p}_{i}_{b}")
-        if backup:
+        for s in w[p]:
             for b in block_names:
-                if backup not in blocks[b]:
-                    prob += (a[p][4][b] == 0, f"noff_{p}_4_{b}")
-        else:
-            for b in block_names:
-                wild = [w[p][s][b] for s in w[p] if b in w[p][s]]
-                prob += (a[p][4][b] == pulp.lpSum(wild), f"wild_{p}_{b}")
-        subj_to_opts: dict[str, list[int]] = defaultdict(list)
-        for i, subj in enumerate(choices):
-            subj_to_opts[subj].append(i)
-        if backup:
-            subj_to_opts[backup].append(4)
-        for subj, opts in subj_to_opts.items():
-            if len(opts) > 1:
-                prob += (
-                    pulp.lpSum(a[p][i][b] for i in opts for b in block_names) <= 1,
-                    f"nodup_{p}_{subj}",
-                )
+                if s not in blocks[b]:
+                    prob += (w[p][s][b] == 0, f"wnoff_{p}_{s}_{b}")
 
     for b in block_names:
         for s, cap in total_cap[b].items():
             terms = []
             for p, stu in enumerate(students):
-                for i, opt in enumerate(stu["choices"]):
+                opts = _options(stu)
+                for i, opt in enumerate(opts):
                     if opt == s:
                         terms.append(a[p][i][b])
-                if stu.get("backup") == s:
-                    terms.append(a[p][4][b])
-                elif not stu.get("backup") and s in w.get(p, {}) and b in w[p][s]:
+                if s in w[p]:
                     terms.append(w[p][s][b])
             if terms:
                 prob += (pulp.lpSum(terms) <= cap, f"cap_{s}_{b}")
@@ -296,36 +268,38 @@ def _extract(a, w, students, block_names) -> tuple[dict, list]:
     student_block_map: dict[str, dict[str, str]] = {}
     backup_users: list[dict] = []
     for p, stu in enumerate(students):
-        choices = stu["choices"]
-        backup = stu.get("backup")
+        opts = _options(stu)
+        n_choices = int(stu.get("n_choices", len(opts)))
         assignment: dict[str, str] = {}
-        backup_block: str | None = None
+        used_backup = used_wildcard = False
         for b in block_names:
-            for i in range(5):
+            picked = None
+            for i in range(len(opts)):
                 if (pulp.value(a[p][i][b]) or 0) > 0.5:
-                    if i == 4:
-                        backup_block = b
-                        if not backup:
-                            picked = "?"
-                            for s, per_b in w.get(p, {}).items():
-                                if b in per_b and (pulp.value(per_b[b]) or 0) > 0.5:
-                                    picked = s
-                                    break
-                            assignment[b] = picked
-                        else:
-                            assignment[b] = backup
-                    else:
-                        assignment[b] = choices[i]
+                    picked = opts[i]
+                    if i >= n_choices:
+                        used_backup = True
                     break
-        if backup_block is not None:
-            assigned = set(assignment.values())
-            dropped = [c for c in choices[2:] if c not in assigned]
+            if picked is None:
+                for s in w[p]:
+                    if (pulp.value(w[p][s][b]) or 0) > 0.5:
+                        picked = s
+                        used_wildcard = True
+                        break
+            assignment[b] = picked if picked is not None else "?"
+        if used_backup or used_wildcard:
+            dropped = [
+                opts[i] for i in range(n_choices) if opts[i] not in assignment.values()
+            ]
             backup_users.append(
                 {
                     "name": stu["name"],
                     "dropped": dropped[0] if dropped else "?",
-                    "backup": assignment[backup_block],
-                    "is_wildcard": not backup,
+                    "backup": next(
+                        (s for b, s in assignment.items() if s not in opts[:n_choices]),
+                        "?",
+                    ),
+                    "is_wildcard": used_wildcard,
                 }
             )
         student_block_map[stu["name"]] = assignment

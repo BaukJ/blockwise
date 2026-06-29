@@ -17,6 +17,7 @@ from app.models import (
     entry_ready,
     status_for_choices,
 )
+from app.rules import rules_error
 from app.security import get_current_user
 from app.timetable.routes import owned_or_404
 
@@ -27,13 +28,13 @@ router = APIRouter(prefix="/timetable", tags=["entries"])
 class EntryIn(BaseModel):
     name: str
     choices: list[str] = []
-    backup: str | None = None
+    backups: list[str] = []
     student_email: EmailStr | None = None
 
 
 class ChoicesIn(BaseModel):
     choices: list[str] = []
-    backup: str | None = None
+    backups: list[str] = []
 
 
 class EntryOut(BaseModel):
@@ -41,7 +42,7 @@ class EntryOut(BaseModel):
     name: str
     student_email: str | None
     choices: list[str]
-    backup: str | None
+    backups: list[str]
     status: str
     submitted: bool  # derived: ready for processing
     submitted_at: datetime | None
@@ -71,11 +72,15 @@ def serialize(e: EntryModel) -> EntryOut:
         name=e.name,
         student_email=e.student_email,
         choices=list(e.choices or []),
-        backup=e.backup,
+        backups=list(e.backups or []),
         status=e.status,
         submitted=entry_ready(e.status),
         submitted_at=e.submitted_at,
     )
+
+
+def _clean(items: list[str]) -> list[str]:
+    return [s.strip() for s in (items or []) if s and s.strip()]
 
 
 def _list(timetable_id: str) -> list[EntryModel]:
@@ -93,18 +98,23 @@ def list_entries(timetable_id: str, user: UserModel = Depends(get_current_user))
 def upsert_entry(
     timetable_id: str, body: EntryIn, user: UserModel = Depends(get_current_user)
 ):
-    owned_or_404(timetable_id, user)
+    tt = owned_or_404(timetable_id, user)
     key = _key(body.name, body.student_email)
-    choices = [c.strip() for c in body.choices if c.strip()]
+    choices = _clean(body.choices)
+    required = int(tt.options_required)
+    if len(choices) >= required:
+        violation = rules_error(list(tt.rules or []), choices)
+        if violation:
+            raise HTTPException(status_code=400, detail=violation)
     entry = EntryModel(
         timetable_id=timetable_id,
         student_key=key,
         name=body.name.strip(),
         student_email=(body.student_email or None) and body.student_email.lower(),
         choices=choices,
-        backup=(body.backup or "").strip() or None,
-        status=status_for_choices(choices, teacher=True),
-        submitted_at=datetime.now(timezone.utc) if len(choices) >= 4 else None,
+        backups=_clean(body.backups),
+        status=status_for_choices(choices, teacher=True, required=required),
+        submitted_at=datetime.now(timezone.utc) if len(choices) >= required else None,
     )
     entry.save()
     return serialize(entry)
@@ -118,22 +128,28 @@ def edit_choices(
     user: UserModel = Depends(get_current_user),
 ):
     """Teacher edits a student's choices. Complete → teacher_submitted, else draft."""
-    owned_or_404(timetable_id, user)
+    tt = owned_or_404(timetable_id, user)
     try:
         entry = EntryModel.get(timetable_id, student_key)
     except EntryModel.DoesNotExist:
         raise HTTPException(status_code=404, detail="Entry not found")
-    choices = [c.strip() for c in body.choices if c.strip()]
-    if len(choices) != len(set(choices)):
-        raise HTTPException(status_code=400, detail="Choices must be distinct")
-    status = status_for_choices(choices, teacher=True)
+    choices = _clean(body.choices)
+    backups = _clean(body.backups)
+    if len(set(choices + backups)) != len(choices + backups):
+        raise HTTPException(status_code=400, detail="Choices and backups must be distinct")
+    required = int(tt.options_required)
+    # Enforce choice rules once the set is complete (drafts are exempt).
+    if len(choices) >= required:
+        violation = rules_error(list(tt.rules or []), choices)
+        if violation:
+            raise HTTPException(status_code=400, detail=violation)
     entry.update(
         actions=[
             EntryModel.choices.set(choices),
-            EntryModel.backup.set((body.backup or "").strip() or None),
-            EntryModel.status.set(status),
+            EntryModel.backups.set(backups),
+            EntryModel.status.set(status_for_choices(choices, teacher=True, required=required)),
             EntryModel.submitted_at.set(
-                datetime.now(timezone.utc) if len(choices) >= 4 else None
+                datetime.now(timezone.utc) if len(choices) >= required else None
             ),
         ]
     )
@@ -175,32 +191,39 @@ def delete_entry(
 def import_csv(
     timetable_id: str, body: CsvIn, user: UserModel = Depends(get_current_user)
 ):
-    """CSV columns: student_name, choice1..choice4, backup (backup optional)."""
-    owned_or_404(timetable_id, user)
+    """CSV columns: student_name, choice1..choiceN, backup1..backupM (or a single
+    'backup' column). Extra/blank columns are ignored."""
+    tt = owned_or_404(timetable_id, user)
     reader = csv.DictReader(io.StringIO(body.csv_text))
-    if not reader.fieldnames or "student_name" not in reader.fieldnames:
+    fields = reader.fieldnames or []
+    if "student_name" not in fields:
         raise HTTPException(status_code=400, detail="CSV needs a 'student_name' column")
+    choice_cols = sorted(
+        (c for c in fields if c and c.startswith("choice")),
+        key=lambda c: int(c[6:] or 0) if c[6:].isdigit() else 0,
+    )
+    backup_cols = sorted(
+        (c for c in fields if c and c.startswith("backup")),
+        key=lambda c: int(c[6:] or 0) if c[6:].isdigit() else 0,
+    )
+    required = int(tt.options_required)
 
     created: list[EntryModel] = []
     for row in reader:
         name = (row.get("student_name") or "").strip()
         if not name or name.startswith("#"):
             continue
-        choices = [
-            (row.get(f"choice{i}") or "").strip()
-            for i in range(1, 5)
-            if (row.get(f"choice{i}") or "").strip()
-        ]
-        backup = (row.get("backup") or "").strip() or None
+        choices = _clean([row.get(c) or "" for c in choice_cols])
+        backups = _clean([row.get(c) or "" for c in backup_cols])
         entry = EntryModel(
             timetable_id=timetable_id,
             student_key=_key(name, None),
             name=name,
             choices=choices,
-            backup=backup,
+            backups=backups,
             # Teacher-imported: complete → teacher_submitted, partial → draft.
-            status=status_for_choices(choices, teacher=True),
-            submitted_at=datetime.now(timezone.utc) if len(choices) >= 4 else None,
+            status=status_for_choices(choices, teacher=True, required=required),
+            submitted_at=datetime.now(timezone.utc) if len(choices) >= required else None,
         )
         entry.save()
         created.append(entry)

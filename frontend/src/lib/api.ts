@@ -87,11 +87,17 @@ export interface Entry {
   name: string;
   student_email: string | null;
   choices: string[];
-  backup: string | null;
+  backups: string[];
   status: EntryStatus;
   submitted: boolean;
   submitted_at: string | null;
 }
+
+// Choice rules (item 14).
+export type Rule =
+  | { type: "position_in"; position: number; subjects: string[] }
+  | { type: "require_one_of"; subjects: string[]; min: number }
+  | { type: "only_at"; subjects: string[]; positions: number[] };
 
 export interface Progress {
   total: number;
@@ -114,8 +120,11 @@ export interface StudentTimetable {
   deadline: string | null;
   subjects: Subject[];
   num_blocks: number;
+  options_required: number;
+  backups_allowed: number;
+  rules: Rule[];
   my_choices: string[];
-  my_backup: string | null;
+  my_backups: string[];
   submitted: boolean;
   finalised: boolean;
   reassignment_enabled: boolean;
@@ -154,7 +163,10 @@ export interface Timetable {
   deadline: string | null;
   entry_mode: "csv" | "ui" | "students";
   num_blocks: number;
+  options_required: number;
+  backups_allowed: number;
   subjects: Subject[];
+  rules: Rule[];
   finalised_job_id: string | null;
   reassignment_enabled: boolean;
 }

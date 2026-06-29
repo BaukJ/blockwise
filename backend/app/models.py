@@ -81,9 +81,9 @@ def entry_ready(status: str | None) -> bool:
     return status in READY_STATUSES
 
 
-def status_for_choices(choices: list[str], teacher: bool) -> str:
+def status_for_choices(choices: list[str], teacher: bool, required: int = 4) -> str:
     """Derive status from how complete the choices are."""
-    complete = len([c for c in (choices or []) if c]) >= 4
+    complete = len([c for c in (choices or []) if c]) >= required
     if complete:
         return (EntryStatus.TEACHER_SUBMITTED if teacher else EntryStatus.SUBMITTED).value
     return (EntryStatus.DRAFT if teacher else EntryStatus.PENDING).value
@@ -124,8 +124,14 @@ class TimetableModel(Model):
     deadline = UTCDateTimeAttribute(null=True)
     entry_mode = UnicodeAttribute(default=EntryMode.UI.value)
     num_blocks = NumberAttribute(default=4)
+    # How many ranked choices each student must give (<= num_blocks), and how many
+    # backups they may add on top.
+    options_required = NumberAttribute(default=4)
+    backups_allowed = NumberAttribute(default=1)
     # Subjects: [{"subject": str, "total_classes": int, "class_capacity": int}, ...]
     subjects = ListAttribute(default=list)
+    # Choice rules (item 14): [{"type": ..., ...}, ...]
+    rules = ListAttribute(default=list)
     finalised_job_id = UnicodeAttribute(null=True)
     reassignment_enabled = BooleanAttribute(default=False)
 
@@ -152,13 +158,13 @@ class EntryModel(Model):
     student_email = UnicodeAttribute(null=True)  # set when assigned to a real user
     student_index = StudentIndex()
     name = UnicodeAttribute()
-    choices = ListAttribute(default=list)  # [c1, c2, c3, c4]
-    backup = UnicodeAttribute(null=True)
+    choices = ListAttribute(default=list)  # ranked choices, best first
+    backups = ListAttribute(default=list)  # ranked backups, best first
     status = UnicodeAttribute(default=EntryStatus.PENDING.value)
     submitted_at = UTCDateTimeAttribute(null=True)
     # Original choices preserved when reassignment opens them back up.
     initial_choices = ListAttribute(null=True)
-    initial_backup = UnicodeAttribute(null=True)
+    initial_backups = ListAttribute(null=True)
     # Reassignment: per-student block→subject override of the finalised solution,
     # plus a snapshot of the original assignment taken on first swap.
     assignment = JSONAttribute(null=True)

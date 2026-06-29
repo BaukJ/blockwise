@@ -74,8 +74,14 @@ def _students(timetable_id: str) -> list[dict]:
     for e in EntryModel.query(timetable_id):
         if not entry_ready(e.status):
             continue
+        choices = list(e.choices or [])
         students.append(
-            {"name": e.name, "choices": list(e.choices or []), "backup": e.backup}
+            {
+                "name": e.name,
+                # Ranked choices first, then backups — the solver weights by position.
+                "options": choices + list(e.backups or []),
+                "n_choices": len(choices),
+            }
         )
     return students
 

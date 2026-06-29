@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, ApiError, type StudentTimetable } from "../lib/api";
+import ChoiceFields from "../components/ChoiceFields";
+import { checkRules } from "../lib/rules";
 
 export default function StudentTimetablePage() {
   const { id } = useParams<{ id: string }>();
@@ -53,8 +55,12 @@ export default function StudentTimetablePage() {
 
 function ChoiceForm({ tt, reload }: { tt: StudentTimetable; reload: () => void }) {
   const subjects = tt.subjects.map((s) => s.subject);
-  const [choices, setChoices] = useState<string[]>(["", "", "", ""]);
-  const [backup, setBackup] = useState("");
+  const [choices, setChoices] = useState<string[]>(
+    Array.from({ length: tt.options_required }, (_, i) => tt.my_choices[i] ?? ""),
+  );
+  const [backups, setBackups] = useState<string[]>(
+    Array.from({ length: tt.backups_allowed }, (_, i) => tt.my_backups[i] ?? ""),
+  );
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -62,19 +68,20 @@ function ChoiceForm({ tt, reload }: { tt: StudentTimetable; reload: () => void }
     e.preventDefault();
     setErr(null);
     const picked = choices.filter(Boolean);
-    if (picked.length !== 4) {
-      setErr("Please rank four distinct choices.");
+    if (picked.length !== tt.options_required) {
+      setErr(`Please rank ${tt.options_required} distinct choices.`);
       return;
     }
-    if (new Set(picked).size !== 4) {
-      setErr("Your four choices must all be different.");
+    const violations = checkRules(tt.rules, picked);
+    if (violations.length) {
+      setErr(violations.join("; "));
       return;
     }
     setBusy(true);
     try {
       await api.post(`/student/timetable/${tt.timetable_id}/submit`, {
         choices: picked,
-        backup: backup || null,
+        backups: backups.filter(Boolean),
       });
       reload();
     } catch (e2) {
@@ -84,54 +91,25 @@ function ChoiceForm({ tt, reload }: { tt: StudentTimetable; reload: () => void }
     }
   }
 
-  // Subjects already chosen are removed from later dropdowns to enforce distinctness.
-  function optionsFor(i: number) {
-    const taken = new Set(choices.filter((_, j) => j !== i).filter(Boolean));
-    return subjects.filter((s) => !taken.has(s) || choices[i] === s);
-  }
-
   return (
     <form onSubmit={submit} className="card space-y-4">
       <p className="text-sm text-slate-500">
-        Rank your four subject choices. Choice 1 and 2 are guaranteed; your backup is
-        used only if a lower choice can’t be placed.
+        Rank your {tt.options_required} subject choices in order of preference. Backups
+        are used only if a choice can’t be placed.
       </p>
       <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
         Once submitted you can’t change your choices, so check carefully.
       </p>
-      {[0, 1, 2, 3].map((i) => (
-        <label key={i} className="block text-sm">
-          <span className="mb-1 block text-slate-500">Choice {i + 1}</span>
-          <select
-            className="input"
-            value={choices[i]}
-            onChange={(e) =>
-              setChoices((c) => c.map((v, j) => (j === i ? e.target.value : v)))
-            }
-            required
-          >
-            <option value="">Select…</option>
-            {optionsFor(i).map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-        </label>
-      ))}
-      <label className="block text-sm">
-        <span className="mb-1 block text-slate-500">Backup (optional)</span>
-        <select className="input" value={backup} onChange={(e) => setBackup(e.target.value)}>
-          <option value="">None</option>
-          {subjects
-            .filter((s) => !choices.includes(s))
-            .map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-        </select>
-      </label>
+      <ChoiceFields
+        subjects={subjects}
+        optionsRequired={tt.options_required}
+        backupsAllowed={tt.backups_allowed}
+        rules={tt.rules}
+        choices={choices}
+        backups={backups}
+        setChoices={setChoices}
+        setBackups={setBackups}
+      />
       {err && <p className="text-sm text-red-600">{err}</p>}
       <button className="btn-primary w-full" disabled={busy}>
         {busy ? "Submitting…" : "Submit my choices"}
@@ -149,8 +127,10 @@ function SubmittedView({ tt }: { tt: StudentTimetable }) {
           <li key={c}>{c}</li>
         ))}
       </ol>
-      {tt.my_backup && (
-        <p className="text-sm text-slate-400">Backup: {tt.my_backup}</p>
+      {tt.my_backups.length > 0 && (
+        <p className="text-sm text-slate-400">
+          Backups: {tt.my_backups.join(", ")}
+        </p>
       )}
       <p className="text-sm text-slate-400">
         Waiting for your teacher to finalise the timetable.

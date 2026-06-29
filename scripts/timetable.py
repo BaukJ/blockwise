@@ -277,6 +277,12 @@ def main() -> None:
     print(f"\nSolving ({mode_label} mode, {args.threads} thread(s), "
           f"time limit {args.time_limit}s) …\n")
 
+    # The shared solver takes an ordered preference list (choices then backup) plus
+    # the count of leading "real" choices.
+    for stu in students:
+        stu["options"] = stu["choices"] + ([stu["backup"]] if stu.get("backup") else [])
+        stu["n_choices"] = len(stu["choices"])
+
     solve_start = time.perf_counter()
     try:
         if fixed_mode:

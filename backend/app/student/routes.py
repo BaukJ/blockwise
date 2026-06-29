@@ -14,6 +14,7 @@ from app.models import (
     UserModel,
     entry_ready,
 )
+from app.rules import rules_error
 from app.security import get_current_user
 
 router = APIRouter(prefix="/student", tags=["student"])
@@ -31,7 +32,7 @@ class AssignedOut(BaseModel):
 
 class SubmitIn(BaseModel):
     choices: list[str]
-    backup: str | None = None
+    backups: list[str] = []
 
 
 class ReassignIn(BaseModel):
@@ -45,8 +46,11 @@ class StudentTimetableOut(BaseModel):
     deadline: datetime | None
     subjects: list[dict]
     num_blocks: int
+    options_required: int
+    backups_allowed: int
+    rules: list[dict]
     my_choices: list[str]
-    my_backup: str | None
+    my_backups: list[str]
     submitted: bool
     finalised: bool
     reassignment_enabled: bool
@@ -153,8 +157,11 @@ def get_one(timetable_id: str, user: UserModel = Depends(get_current_user)):
         deadline=tt.deadline,
         subjects=list(tt.subjects or []),
         num_blocks=int(tt.num_blocks),
+        options_required=int(tt.options_required),
+        backups_allowed=int(tt.backups_allowed),
+        rules=list(tt.rules or []),
         my_choices=list(entry.choices or []),
-        my_backup=entry.backup,
+        my_backups=list(entry.backups or []),
         submitted=entry_ready(entry.status),
         finalised=bool(job),
         reassignment_enabled=bool(tt.reassignment_enabled),
@@ -169,17 +176,25 @@ def submit(
     timetable_id: str, body: SubmitIn, user: UserModel = Depends(get_current_user)
 ):
     entry = _my_entry(timetable_id, user.email)
+    tt = TimetableModel.get(timetable_id)
     if entry_ready(entry.status):
         raise HTTPException(status_code=409, detail="Choices already submitted")
     choices = [c.strip() for c in body.choices if c.strip()]
-    if len(choices) != 4:
-        raise HTTPException(status_code=400, detail="Please rank four choices")
-    if len(choices) != len(set(choices)):
-        raise HTTPException(status_code=400, detail="Choices must be distinct")
+    backups = [b.strip() for b in body.backups if b.strip()]
+    required = int(tt.options_required)
+    if len(choices) != required:
+        raise HTTPException(status_code=400, detail=f"Please rank {required} choices")
+    if len(backups) > int(tt.backups_allowed):
+        raise HTTPException(status_code=400, detail="Too many backups")
+    if len(set(choices + backups)) != len(choices + backups):
+        raise HTTPException(status_code=400, detail="Choices and backups must be distinct")
+    violation = rules_error(list(tt.rules or []), choices)
+    if violation:
+        raise HTTPException(status_code=400, detail=violation)
     entry.update(
         actions=[
             EntryModel.choices.set(choices),
-            EntryModel.backup.set((body.backup or "").strip() or None),
+            EntryModel.backups.set(backups),
             EntryModel.status.set(EntryStatus.SUBMITTED.value),
             EntryModel.submitted_at.set(datetime.now(timezone.utc)),
         ]
