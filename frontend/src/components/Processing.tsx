@@ -1,19 +1,54 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  DndContext,
+  useDraggable,
+  useDroppable,
+  type DragEndEvent,
+} from "@dnd-kit/core";
 import { api, ApiError, type Job, type Timetable } from "../lib/api";
 import SolutionView from "./SolutionView";
 
-type Mode = "auto" | "custom" | "previous";
+type Mode = "auto" | "previous" | "custom";
+
+interface ClassChip {
+  id: string;
+  subject: string;
+  capacity: number;
+}
+
+const AUTO = "auto";
+
+function blockLetters(n: number): string[] {
+  return Array.from({ length: n }, (_, i) => String.fromCharCode(65 + i));
+}
+
+// One chip per class declared in the timetable's subjects.
+function buildChips(tt: Timetable): ClassChip[] {
+  const chips: ClassChip[] = [];
+  for (const s of tt.subjects) {
+    for (let k = 0; k < s.total_classes; k++) {
+      chips.push({
+        id: `${s.subject}#${k}`,
+        subject: s.subject,
+        capacity: s.class_capacity,
+      });
+    }
+  }
+  return chips;
+}
 
 export default function Processing({ tt }: { tt: Timetable }) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [mode, setMode] = useState<Mode>("auto");
   const [prevId, setPrevId] = useState("");
-  const [customRows, setCustomRows] = useState<
-    { block: string; subject: string; capacity: number }[]
-  >([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
+
+  const chips = useMemo(() => buildChips(tt), [tt]);
+  const blocks = blockLetters(tt.num_blocks);
+  // chip id → block letter or AUTO
+  const [placement, setPlacement] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     setJobs(await api.get<Job[]>(`/timetable/${tt.id}/jobs`));
@@ -23,7 +58,6 @@ export default function Processing({ tt }: { tt: Timetable }) {
     load();
   }, [load]);
 
-  // Poll while anything is still solving.
   useEffect(() => {
     const active = jobs.some((j) => j.status === "pending" || j.status === "running");
     if (!active) return;
@@ -33,21 +67,54 @@ export default function Processing({ tt }: { tt: Timetable }) {
 
   const done = jobs.filter((j) => j.status === "done");
 
+  // (Re)seed the drag-and-drop layout whenever the mode or chosen run changes.
+  useEffect(() => {
+    if (mode === "previous" && prevId) {
+      const job = jobs.find((j) => j.id === prevId);
+      const bc = job?.result?.block_classes ?? {};
+      const next: Record<string, string> = {};
+      const pool = [...chips];
+      for (const [block, subjs] of Object.entries(bc)) {
+        for (const [subject, caps] of Object.entries(subjs)) {
+          for (let i = 0; i < caps.length; i++) {
+            const idx = pool.findIndex((c) => c.subject === subject);
+            if (idx >= 0) {
+              next[pool[idx].id] = blocks.includes(block) ? block : AUTO;
+              pool.splice(idx, 1);
+            }
+          }
+        }
+      }
+      for (const c of pool) next[c.id] = AUTO;
+      setPlacement(next);
+    } else {
+      // auto + custom both start with everything in automatic placement.
+      setPlacement(Object.fromEntries(chips.map((c) => [c.id, AUTO])));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, prevId, tt.id]);
+
+  function onDragEnd(e: DragEndEvent) {
+    const zone = e.over?.id?.toString();
+    if (!zone) return;
+    setPlacement((p) => ({ ...p, [e.active.id.toString()]: zone }));
+  }
+
   async function run() {
     setErr(null);
     setBusy(true);
     try {
-      const body: Record<string, unknown> = { blocks_mode: mode, time_limit: 120 };
-      if (mode === "previous") {
-        if (!prevId) throw new ApiError(400, "Pick a previous solution");
-        body.previous_job_id = prevId;
-      }
-      if (mode === "custom") {
-        const rows = customRows.filter((r) => r.block.trim() && r.subject.trim());
-        if (rows.length === 0) throw new ApiError(400, "Add at least one block class");
-        body.custom_blocks = rows;
-      }
-      await api.post<Job>(`/timetable/${tt.id}/process`, body);
+      if (chips.length === 0) throw new ApiError(400, "Add subjects first");
+      const classes = chips.map((c) => ({
+        subject: c.subject,
+        capacity: c.capacity,
+        block: placement[c.id] && placement[c.id] !== AUTO ? placement[c.id] : null,
+      }));
+      await api.post<Job>(`/timetable/${tt.id}/process`, {
+        blocks_mode: "layout",
+        time_limit: 120,
+        classes,
+      });
       await load();
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Failed to start");
@@ -60,23 +127,22 @@ export default function Processing({ tt }: { tt: Timetable }) {
     <div className="card space-y-4">
       <h2 className="font-semibold">Processing</h2>
 
-      <div className="flex flex-wrap items-end gap-3 rounded-lg bg-slate-50 p-3">
+      <div className="flex flex-wrap items-end gap-3">
         <label className="text-sm">
-          <span className="mb-1 block text-slate-500">Blocks</span>
+          <span className="mb-1 block text-slate-500">Starting point</span>
           <select
             className="input"
             value={mode}
             onChange={(e) => setMode(e.target.value as Mode)}
           >
-            <option value="auto">Let Blockwise find optimal blocks</option>
-            <option value="previous">Reuse blocks from a previous run</option>
-            <option value="custom">Custom blocks (advanced)</option>
+            <option value="auto">Let Blockwise place everything</option>
+            <option value="previous">Start from a previous run</option>
+            <option value="custom">Build from scratch</option>
           </select>
         </label>
-
         {mode === "previous" && (
           <label className="text-sm">
-            <span className="mb-1 block text-slate-500">Previous solution</span>
+            <span className="mb-1 block text-slate-500">Previous run</span>
             <select
               className="input"
               value={prevId}
@@ -85,21 +151,30 @@ export default function Processing({ tt }: { tt: Timetable }) {
               <option value="">Select…</option>
               {done.map((j) => (
                 <option key={j.id} value={j.id}>
-                  {new Date(j.created_at).toLocaleString()} ({j.blocks_mode})
+                  {new Date(j.created_at).toLocaleString()}
                 </option>
               ))}
             </select>
           </label>
         )}
-
         <button className="btn-primary" onClick={run} disabled={busy}>
           {busy ? "Starting…" : "Run processing"}
         </button>
       </div>
 
-      {mode === "custom" && (
-        <CustomBlocks tt={tt} rows={customRows} setRows={setCustomRows} />
-      )}
+      <p className="text-xs text-slate-500">
+        Drag classes into blocks to pin them. Anything left in{" "}
+        <span className="font-medium">Automatic placement</span> is positioned by the
+        solver.
+      </p>
+
+      <LayoutBoard
+        blocks={blocks}
+        chips={chips}
+        placement={placement}
+        onDragEnd={onDragEnd}
+      />
+
       {err && <p className="text-sm text-red-600">{err}</p>}
 
       {jobs.length === 0 ? (
@@ -112,10 +187,7 @@ export default function Processing({ tt }: { tt: Timetable }) {
                 className="flex w-full items-center justify-between px-3 py-2 text-left text-sm"
                 onClick={() => setOpen(open === j.id ? null : j.id)}
               >
-                <span>
-                  {new Date(j.created_at).toLocaleString()} ·{" "}
-                  <span className="text-slate-400">{j.blocks_mode}</span>
-                </span>
+                <span>{new Date(j.created_at).toLocaleString()}</span>
                 <span className="flex items-center gap-2">
                   <StatusBadge status={j.status} />
                   {tt.finalised_job_id === j.id && (
@@ -153,90 +225,94 @@ export default function Processing({ tt }: { tt: Timetable }) {
   );
 }
 
-function CustomBlocks({
-  tt,
-  rows,
-  setRows,
+// ── Drag-and-drop board ──────────────────────────────────────────────────────
+function LayoutBoard({
+  blocks,
+  chips,
+  placement,
+  onDragEnd,
 }: {
-  tt: Timetable;
-  rows: { block: string; subject: string; capacity: number }[];
-  setRows: React.Dispatch<
-    React.SetStateAction<{ block: string; subject: string; capacity: number }[]>
-  >;
+  blocks: string[];
+  chips: ClassChip[];
+  placement: Record<string, string>;
+  onDragEnd: (e: DragEndEvent) => void;
 }) {
-  const blockLetters = Array.from({ length: tt.num_blocks }, (_, i) =>
-    String.fromCharCode(65 + i),
-  );
-  const subjects = tt.subjects.map((s) => s.subject);
-
-  function update(i: number, patch: Partial<(typeof rows)[number]>) {
-    setRows((r) => r.map((row, j) => (j === i ? { ...row, ...patch } : row)));
-  }
+  const inZone = (zone: string) => chips.filter((c) => placement[c.id] === zone);
 
   return (
-    <div className="space-y-2 rounded-lg bg-slate-50 p-3">
-      <p className="text-xs text-slate-500">
-        Place each class in a block. Repeat a (block, subject) pair for multiple
-        parallel classes.
-      </p>
-      <div className="grid grid-cols-[5rem_1fr_6rem_2rem] gap-2 text-xs text-slate-400">
-        <span>Block</span>
-        <span>Subject</span>
-        <span>Capacity</span>
-        <span />
-      </div>
-      {rows.map((row, i) => (
-        <div key={i} className="grid grid-cols-[5rem_1fr_6rem_2rem] gap-2">
-          <select
-            className="input"
-            value={row.block}
-            onChange={(e) => update(i, { block: e.target.value })}
-          >
-            {blockLetters.map((b) => (
-              <option key={b} value={b}>
-                {b}
-              </option>
-            ))}
-          </select>
-          <select
-            className="input"
-            value={row.subject}
-            onChange={(e) => update(i, { subject: e.target.value })}
-          >
-            <option value="">Select subject…</option>
-            {subjects.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-          <input
-            className="input"
-            type="number"
-            min={1}
-            value={row.capacity}
-            onChange={(e) => update(i, { capacity: Number(e.target.value) })}
-          />
-          <button
-            className="text-slate-400 hover:text-red-600"
-            onClick={() => setRows((r) => r.filter((_, j) => j !== i))}
-          >
-            ✕
-          </button>
-        </div>
-      ))}
-      <button
-        className="btn-ghost"
-        onClick={() =>
-          setRows((r) => [
-            ...r,
-            { block: blockLetters[0], subject: "", capacity: 30 },
-          ])
-        }
+    <DndContext onDragEnd={onDragEnd}>
+      <div
+        className="grid gap-3"
+        style={{ gridTemplateColumns: `repeat(${Math.min(blocks.length, 4)}, minmax(0, 1fr))` }}
       >
-        + Add class
-      </button>
+        {blocks.map((b) => (
+          <Zone key={b} id={b} title={`Block ${b}`}>
+            {inZone(b).map((c) => (
+              <Chip key={c.id} chip={c} />
+            ))}
+          </Zone>
+        ))}
+      </div>
+      <div className="mt-3">
+        <Zone id={AUTO} title="Automatic placement" muted>
+          <div className="flex flex-wrap gap-2">
+            {inZone(AUTO).map((c) => (
+              <Chip key={c.id} chip={c} />
+            ))}
+            {inZone(AUTO).length === 0 && (
+              <span className="text-xs text-slate-400">
+                Everything is pinned — the solver has nothing to place.
+              </span>
+            )}
+          </div>
+        </Zone>
+      </div>
+    </DndContext>
+  );
+}
+
+function Zone({
+  id,
+  title,
+  muted,
+  children,
+}: {
+  id: string;
+  title: string;
+  muted?: boolean;
+  children: React.ReactNode;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`rounded-lg p-3 ring-1 transition ${
+        isOver ? "ring-brand-500 bg-brand-50" : "ring-slate-200"
+      } ${muted ? "bg-slate-50" : "bg-white"}`}
+    >
+      <div className="mb-2 text-xs font-semibold uppercase text-slate-400">{title}</div>
+      <div className={muted ? "" : "space-y-2"}>{children}</div>
     </div>
+  );
+}
+
+function Chip({ chip }: { chip: ClassChip }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: chip.id,
+  });
+  return (
+    <button
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      style={transform ? { transform: `translate(${transform.x}px, ${transform.y}px)` } : undefined}
+      className={`block w-full cursor-grab rounded-md bg-brand-600 px-2 py-1 text-left text-xs text-white ${
+        isDragging ? "opacity-50" : ""
+      }`}
+    >
+      {chip.subject}{" "}
+      <span className="opacity-70">·{chip.capacity}</span>
+    </button>
   );
 }
 
@@ -247,7 +323,5 @@ function StatusBadge({ status }: { status: Job["status"] }) {
     done: "bg-emerald-100 text-emerald-700",
     failed: "bg-red-100 text-red-700",
   };
-  return (
-    <span className={`rounded px-2 py-0.5 text-xs ${map[status]}`}>{status}</span>
-  );
+  return <span className={`rounded px-2 py-0.5 text-xs ${map[status]}`}>{status}</span>;
 }

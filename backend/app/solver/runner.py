@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 
 from app.models import JobModel, JobStatus
-from app.solver.core import SolverError, solve, solve_fixed_blocks
+from app.solver.core import SolverError, solve, solve_fixed_blocks, solve_partial
 
 
 def run_job(job_id: str) -> None:
@@ -21,7 +21,16 @@ def run_job(job_id: str) -> None:
     threads = os.cpu_count() or 1
 
     try:
-        if job.blocks_mode == "auto":
+        if job.blocks_mode == "layout":
+            # Drag-and-drop layout: classes with an optional pinned block.
+            result = solve_partial(
+                inp.get("classes", []),
+                students,
+                int(inp.get("n_blocks", 4)),
+                time_limit,
+                threads,
+            )
+        elif job.blocks_mode == "auto":
             subjects = {k: list(v) for k, v in inp.get("subjects", {}).items()}
             result = solve(
                 subjects, students, int(inp.get("n_blocks", 4)), time_limit, threads

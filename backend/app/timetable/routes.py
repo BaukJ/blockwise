@@ -7,7 +7,14 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.models import EntryMode, TimetableModel, UserModel
+from app.models import (
+    EntryMode,
+    EntryModel,
+    EntryStatus,
+    TimetableModel,
+    UserModel,
+    status_for_choices,
+)
 from app.security import get_current_user
 
 router = APIRouter(prefix="/timetable", tags=["timetable"])
@@ -160,6 +167,69 @@ def update_timetable(
     if actions:
         tt.update(actions=actions)
     return serialize(tt)
+
+
+class CloneIn(BaseModel):
+    name: str
+    include_subjects: bool = True
+    include_students: bool = False
+    include_choices: bool = False
+
+
+@router.post("/{timetable_id}/clone", response_model=TimetableOut)
+def clone_timetable(
+    timetable_id: str, body: CloneIn, user: UserModel = Depends(get_current_user)
+):
+    """Copy a timetable. Config (blocks/options/backups) is always copied; subjects,
+    students and their choices are opt-in. Choices require students AND subjects so
+    the copied choices still reference real subjects."""
+    src = owned_or_404(timetable_id, user)
+    if body.include_choices and not (body.include_students and body.include_subjects):
+        raise HTTPException(
+            status_code=400,
+            detail="Copying choices needs students and subjects copied too",
+        )
+
+    new_id = str(uuid.uuid4())
+    # Rules reference subjects, so they ride along with the subjects option.
+    clone = TimetableModel(
+        id=new_id,
+        owner=user.email,
+        name=body.name,
+        created_at=datetime.now(timezone.utc),
+        entry_mode=src.entry_mode,
+        num_blocks=src.num_blocks,
+        options_required=src.options_required,
+        backups_allowed=src.backups_allowed,
+        subjects=list(src.subjects or []) if body.include_subjects else [],
+        rules=list(src.rules or []) if body.include_subjects else [],
+    )
+    clone.save()
+
+    if body.include_students:
+        required = int(src.options_required)
+        for e in EntryModel.query(timetable_id):
+            choices = list(e.choices or []) if body.include_choices else []
+            backups = list(e.backups or []) if body.include_choices else []
+            if body.include_choices and choices:
+                status = status_for_choices(choices, teacher=True, required=required)
+            else:
+                status = (
+                    EntryStatus.PENDING.value
+                    if e.student_email
+                    else EntryStatus.DRAFT.value
+                )
+            EntryModel(
+                timetable_id=new_id,
+                student_key=e.student_key,
+                student_email=e.student_email,
+                name=e.name,
+                choices=choices,
+                backups=backups,
+                status=status,
+            ).save()
+
+    return serialize(clone)
 
 
 @router.delete("/{timetable_id}")

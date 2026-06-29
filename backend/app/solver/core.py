@@ -207,6 +207,81 @@ def solve(
     }
 
 
+# ── Partial-placement mode ───────────────────────────────────────────────────
+def solve_partial(
+    classes: list[dict],
+    students: list[dict],
+    n_blocks: int = 4,
+    time_limit: int = 120,
+    threads: int = 1,
+    verbose: bool = False,
+) -> dict:
+    """Like auto mode, but each class may be PINNED to a block. Classes with
+    block=None are placed by the solver; pinned classes are fixed.
+
+    classes: [{"subject": str, "capacity": int, "block": "A" | None}, ...]
+    """
+    if not (1 <= n_blocks <= 8):
+        raise SolverError("Number of blocks must be between 1 and 8.")
+    blocks = _block_letters(n_blocks)
+    subj_names = sorted({c["subject"] for c in classes})
+    validate_students(students, set(subj_names))
+    for c in classes:
+        if c.get("block") and c["block"] not in blocks:
+            raise SolverError(f"Class pinned to unknown block '{c['block']}'.")
+
+    prob = pulp.LpProblem("timetable_partial", pulp.LpMinimize)
+
+    # y[c][b] — class index c lands in block b.
+    y = {
+        c: {b: pulp.LpVariable(f"y_{c}_{b}", cat="Binary") for b in blocks}
+        for c in range(len(classes))
+    }
+    for c, cls in enumerate(classes):
+        prob += (pulp.lpSum(y[c][b] for b in blocks) == 1, f"class_{c}")
+        if cls.get("block"):
+            prob += (y[c][cls["block"]] == 1, f"pin_{c}")
+
+    a, w = _build(prob, students, blocks, set(subj_names))
+
+    for s in subj_names:
+        for b in blocks:
+            seats = pulp.lpSum(
+                y[c][b] * int(classes[c]["capacity"])
+                for c in range(len(classes))
+                if classes[c]["subject"] == s
+            )
+            terms = []
+            for p, stu in enumerate(students):
+                for i, opt in enumerate(_options(stu)):
+                    if opt == s:
+                        terms.append(a[p][i][b])
+                if s in w[p]:
+                    terms.append(w[p][s][b])
+            if terms:
+                prob += (pulp.lpSum(terms) <= seats, f"cap_{s}_{b}")
+
+    prob.solve(_pick_solver(time_limit, threads, msg=verbose))
+    _check_status(prob, fixed=False)
+
+    block_classes: dict[str, dict[str, list[int]]] = {b: {} for b in blocks}
+    for c, cls in enumerate(classes):
+        for b in blocks:
+            if (pulp.value(y[c][b]) or 0) > 0.5:
+                block_classes[b].setdefault(cls["subject"], []).append(
+                    int(cls["capacity"])
+                )
+                break
+
+    student_block_map, backup_users = _extract(a, w, students, blocks)
+    return {
+        "block_classes": block_classes,
+        "student_block_map": student_block_map,
+        "backup_users": backup_users,
+        "block_names": list(blocks),
+    }
+
+
 # ── Fixed-blocks mode ────────────────────────────────────────────────────────
 def solve_fixed_blocks(
     blocks: dict[str, dict[str, list[int]]],

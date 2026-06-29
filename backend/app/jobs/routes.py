@@ -30,11 +30,18 @@ class CustomBlockRow(BaseModel):
     capacity: int
 
 
+class LayoutClass(BaseModel):
+    subject: str
+    capacity: int
+    block: str | None = None  # pinned block letter, or None for automatic placement
+
+
 class ProcessIn(BaseModel):
-    blocks_mode: str = "auto"  # auto | custom | previous
+    blocks_mode: str = "auto"  # auto | custom | previous | layout
     time_limit: int = 120
     custom_blocks: list[CustomBlockRow] | None = None
     previous_job_id: str | None = None
+    classes: list[LayoutClass] | None = None  # for layout mode
 
 
 class JobOut(BaseModel):
@@ -120,7 +127,12 @@ def process(
         raise HTTPException(status_code=400, detail="No submitted student choices yet")
 
     inp: dict = {"students": students, "time_limit": body.time_limit}
-    if body.blocks_mode == "auto":
+    if body.blocks_mode == "layout":
+        if not body.classes:
+            raise HTTPException(status_code=400, detail="classes required")
+        inp["n_blocks"] = int(tt.num_blocks)
+        inp["classes"] = [c.model_dump() for c in body.classes]
+    elif body.blocks_mode == "auto":
         inp["n_blocks"] = int(tt.num_blocks)
         inp["subjects"] = _subjects_dict(tt)
     elif body.blocks_mode == "custom":
