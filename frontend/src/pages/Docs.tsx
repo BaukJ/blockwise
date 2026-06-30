@@ -44,6 +44,15 @@ export default function Docs() {
                 </Link>
               </li>
             ))}
+            {/* /example is its own top-level app, so use a full navigation. */}
+            <li className="mt-2 border-t border-slate-100 pt-2">
+              <a
+                href="/example"
+                className="block rounded px-2 py-1 text-brand-600 hover:bg-slate-50"
+              >
+                Live demo ↗
+              </a>
+            </li>
           </ul>
         </nav>
 

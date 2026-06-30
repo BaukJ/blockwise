@@ -39,12 +39,7 @@ function ExampleApp({ role }: { role: "teacher" | "student" }) {
 
   return (
     <AuthContext.Provider value={auth}>
-      <div className="flex flex-wrap items-center justify-center gap-x-2 bg-amber-400 px-4 py-1.5 text-center text-xs font-medium text-amber-950">
-        <span>🧪 Interactive demo — nothing is saved; refresh to reset.</span>
-        <a href="/login" target="_top" className="underline hover:no-underline">
-          Open the real Blockwise →
-        </a>
-      </div>
+      <ExampleBanner />
       <MemoryRouter initialEntries={[role === "teacher" ? "/teacher" : "/student"]}>
         <Routes>
           <Route path="/teacher" element={<Protected><TeacherDashboard /></Protected>} />
@@ -59,9 +54,49 @@ function ExampleApp({ role }: { role: "teacher" | "student" }) {
   );
 }
 
+function ExampleBanner() {
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-x-2 bg-amber-400 px-4 py-1.5 text-center text-xs font-medium text-amber-950">
+      <span>🧪 Interactive demo — nothing is saved; refresh to reset.</span>
+      <a href="/login" target="_top" className="underline hover:no-underline">
+        Open the real Blockwise →
+      </a>
+    </div>
+  );
+}
+
 export function ExampleTeacher() {
   return <ExampleApp role="teacher" />;
 }
 export function ExampleStudent() {
   return <ExampleApp role="student" />;
+}
+
+// Landing for /example — pick a view to explore.
+export function ExampleIndex() {
+  return (
+    <div className="flex min-h-screen flex-col bg-slate-50">
+      <ExampleBanner />
+      <div className="grid flex-1 place-items-center px-4">
+        <div className="max-w-lg text-center">
+          <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-brand-600 text-2xl font-bold text-white">
+            B
+          </div>
+          <h1 className="text-2xl font-semibold">Blockwise — live examples</h1>
+          <p className="mx-auto mt-2 max-w-md text-slate-500">
+            Explore the real teacher and student experiences running on dummy data.
+            Everything is interactive, but nothing is saved — refresh to reset.
+          </p>
+          <div className="mt-6 flex flex-wrap justify-center gap-3">
+            <a href="/example/teacher" className="btn-primary px-6 py-3 text-base">
+              🧑‍🏫 Teacher view
+            </a>
+            <a href="/example/student" className="btn-ghost px-6 py-3 text-base">
+              🎒 Student view
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }

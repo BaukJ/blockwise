@@ -8,7 +8,7 @@ import Verify from "./pages/Verify";
 import Reset from "./pages/Reset";
 import Fill from "./pages/Fill";
 import Docs from "./pages/Docs";
-import { ExampleTeacher, ExampleStudent } from "./pages/Example";
+import { ExampleTeacher, ExampleStudent, ExampleIndex } from "./pages/Example";
 import RoleChoice from "./pages/RoleChoice";
 import Landing from "./pages/Landing";
 import TeacherDashboard from "./pages/TeacherDashboard";
@@ -46,6 +46,7 @@ function App() {
 // forbids nested routers).
 function Root() {
   const path = window.location.pathname;
+  if (path === "/example" || path === "/example/") return <ExampleIndex />;
   if (path.startsWith("/example/")) {
     return path.includes("/student") ? <ExampleStudent /> : <ExampleTeacher />;
   }
