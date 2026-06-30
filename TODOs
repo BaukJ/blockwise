@@ -28,3 +28,10 @@
 
 [x] Add validation so that the subjects cannot be duplicated (same name). To cater for the "maths with 2 different capacities", add an "add capacity" button to each subject line, when clicked it adds another capacity option for that subject
 
+[x]  On the "✓ Your choices are in. Thank you!" page with the magic link. Have a link at the bottom to redirect to the main blockwise home page.
+[x]  Add an ability to add an artificial sleep when running locally (even just a section of commented out code). So we can test what a 3s delay on API calls feels like once it moves to a cold start lambda
+[x]  Ensure deadlines are enforced. If the deadline is crossed, a student cannot fill it out.
+[x]  Make it clearer that you're in the teacher or student view.
+[x]  Rename capacities to classes
+[x]  To the right of "Save Subjects" there should be some less prominent buttons to add popular subjects (e.g.: "+ Maths"). There should be 3 options, and when one is selected it pre-populates the subject row.
+[x]  To the right of the "Subjects" heading in the teacher view, there should be a "default capacity" box defaulting to 30. If the teacher changes this, then adds subjects, they default to this capacity. But clicking + on a subject line will default to the same capacity as the last capacity for that subject.

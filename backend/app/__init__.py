@@ -1,9 +1,10 @@
 """FastAPI app factory for Blockwise. All routes live under /api."""
 from __future__ import annotations
 
+import asyncio
 import logging
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -22,6 +23,15 @@ def create_app() -> FastAPI:
 
     # Session middleware backs Authlib's OAuth state during the Google flow.
     app.add_middleware(SessionMiddleware, secret_key=settings.secret_key)
+
+    # Locally, set API_DELAY_SECONDS (e.g. 3) to feel what a Lambda cold start is
+    # like — the frontend has a 15s timeout and should stay responsive.
+    if settings.api_delay_seconds > 0:
+
+        @app.middleware("http")
+        async def _delay(request: Request, call_next):
+            await asyncio.sleep(settings.api_delay_seconds)
+            return await call_next(request)
 
     if settings.is_local:
         app.add_middleware(

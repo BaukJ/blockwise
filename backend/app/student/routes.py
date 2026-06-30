@@ -52,6 +52,7 @@ class StudentTimetableOut(BaseModel):
     my_choices: list[str]
     my_backups: list[str]
     submitted: bool
+    deadline_passed: bool
     finalised: bool
     reassignment_enabled: bool
     # Present only once finalised:
@@ -69,6 +70,10 @@ def _my_entry(timetable_id: str, email: str) -> EntryModel:
     if entry.student_email != email:
         raise HTTPException(status_code=403, detail="Not your entry")
     return entry
+
+
+def _deadline_passed(tt: TimetableModel) -> bool:
+    return bool(tt.deadline and datetime.now(timezone.utc) > tt.deadline)
 
 
 def _finalised_job(tt: TimetableModel) -> JobModel | None:
@@ -163,6 +168,7 @@ def get_one(timetable_id: str, user: UserModel = Depends(get_current_user)):
         my_choices=list(entry.choices or []),
         my_backups=list(entry.backups or []),
         submitted=entry_ready(entry.status),
+        deadline_passed=_deadline_passed(tt),
         finalised=bool(job),
         reassignment_enabled=bool(tt.reassignment_enabled),
         my_assignment=my_assignment,
@@ -179,6 +185,8 @@ def submit(
     tt = TimetableModel.get(timetable_id)
     if entry_ready(entry.status):
         raise HTTPException(status_code=409, detail="Choices already submitted")
+    if _deadline_passed(tt):
+        raise HTTPException(status_code=403, detail="The deadline has passed")
     choices = [c.strip() for c in body.choices if c.strip()]
     backups = [b.strip() for b in body.backups if b.strip()]
     required = int(tt.options_required)

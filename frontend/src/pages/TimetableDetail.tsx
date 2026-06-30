@@ -172,7 +172,9 @@ function SubjectsCard({ tt, onSaved }: { tt: Timetable; onSaved: () => void }) {
   const [csv, setCsv] = useState("");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [defaultCapacity, setDefaultCapacity] = useState(30);
   const nameRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const POPULAR = ["Maths", "English", "Science"];
 
   function setName(i: number, subject: string) {
     setRows((r) => r.map((row, j) => (j === i ? { ...row, subject } : row)));
@@ -189,7 +191,16 @@ function SubjectsCard({ tt, onSaved }: { tt: Timetable; onSaved: () => void }) {
   function addCapacity(i: number) {
     setRows((r) =>
       r.map((row, j) =>
-        j === i ? { ...row, capacities: [...row.capacities, 30] } : row,
+        j === i
+          ? {
+              ...row,
+              // New class defaults to this subject's last class size.
+              capacities: [
+                ...row.capacities,
+                row.capacities[row.capacities.length - 1] ?? defaultCapacity,
+              ],
+            }
+          : row,
       ),
     );
   }
@@ -202,13 +213,17 @@ function SubjectsCard({ tt, onSaved }: { tt: Timetable; onSaved: () => void }) {
       ),
     );
   }
-  function addSubject() {
+  function addSubject(name = "") {
     const newIndex = rows.length;
-    setRows((r) => [...r, { subject: "", capacities: [30] }]);
-    requestAnimationFrame(() => nameRefs.current[newIndex]?.focus());
+    setRows((r) => [...r, { subject: name, capacities: [defaultCapacity] }]);
+    if (!name) requestAnimationFrame(() => nameRefs.current[newIndex]?.focus());
   }
   function removeSubject(i: number) {
     setRows((r) => r.filter((_, j) => j !== i));
+  }
+  function addPopular(name: string) {
+    if (rows.some((r) => r.subject.trim().toLowerCase() === name.toLowerCase())) return;
+    addSubject(name);
   }
 
   async function save() {
@@ -239,8 +254,20 @@ function SubjectsCard({ tt, onSaved }: { tt: Timetable; onSaved: () => void }) {
 
   return (
     <div className="card space-y-3">
-      <div className="flex items-center justify-between">
-        <h2 className="font-semibold">Subjects</h2>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <h2 className="font-semibold">Subjects</h2>
+          <label className="flex items-center gap-1 text-xs text-slate-500">
+            Default class size
+            <input
+              className="input w-16"
+              type="number"
+              min={1}
+              value={defaultCapacity}
+              onChange={(e) => setDefaultCapacity(Number(e.target.value))}
+            />
+          </label>
+        </div>
         <button className="text-sm text-brand-600" onClick={() => setCsvOpen((o) => !o)}>
           Import CSV
         </button>
@@ -286,7 +313,7 @@ function SubjectsCard({ tt, onSaved }: { tt: Timetable; onSaved: () => void }) {
                 }
               }}
             />
-            <span className="text-xs text-slate-400">capacities:</span>
+            <span className="text-xs text-slate-400">classes:</span>
             {row.capacities.map((cap, k) => (
               <span key={k} className="inline-flex items-center">
                 <input
@@ -300,7 +327,7 @@ function SubjectsCard({ tt, onSaved }: { tt: Timetable; onSaved: () => void }) {
                   <button
                     className="ml-1 text-slate-300 hover:text-red-600"
                     onClick={() => removeCapacity(i, k)}
-                    aria-label="Remove capacity"
+                    aria-label="Remove class"
                   >
                     ✕
                   </button>
@@ -311,7 +338,7 @@ function SubjectsCard({ tt, onSaved }: { tt: Timetable; onSaved: () => void }) {
               className="text-xs text-brand-600 hover:underline"
               onClick={() => addCapacity(i)}
             >
-              + capacity
+              + class
             </button>
             <button
               className="ml-auto text-slate-400 hover:text-red-600"
@@ -328,18 +355,28 @@ function SubjectsCard({ tt, onSaved }: { tt: Timetable; onSaved: () => void }) {
       </div>
 
       <p className="text-xs text-slate-400">
-        Each capacity is one class. A subject with two capacities runs two parallel
-        classes (e.g. Maths at 30 and 25).
+        Each box is one class and its size. A subject with two classes runs two
+        parallel classes (e.g. Maths at 30 and 25).
       </p>
       {err && <p className="text-sm text-red-600">{err}</p>}
 
-      <div className="flex gap-2">
-        <button className="btn-ghost" onClick={addSubject}>
+      <div className="flex flex-wrap items-center gap-2">
+        <button className="btn-ghost" onClick={() => addSubject()}>
           + Add subject
         </button>
         <button className="btn-primary" onClick={save} disabled={saving}>
           {saving ? "Saving…" : "Save subjects"}
         </button>
+        <span className="ml-2 text-xs text-slate-400">Quick add:</span>
+        {POPULAR.map((p) => (
+          <button
+            key={p}
+            className="rounded-full px-2.5 py-1 text-xs text-slate-500 ring-1 ring-slate-200 hover:bg-slate-50"
+            onClick={() => addPopular(p)}
+          >
+            + {p}
+          </button>
+        ))}
       </div>
     </div>
   );

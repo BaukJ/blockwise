@@ -46,6 +46,10 @@ export default function StudentTimetablePage() {
         <AssignmentView tt={tt} reload={load} />
       ) : tt.submitted ? (
         <SubmittedView tt={tt} />
+      ) : tt.deadline_passed ? (
+        <div className="card text-center text-red-600">
+          The deadline for this timetable has passed — choices are closed.
+        </div>
       ) : (
         <ChoiceForm tt={tt} reload={load} />
       )}

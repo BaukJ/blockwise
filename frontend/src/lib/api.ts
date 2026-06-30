@@ -125,6 +125,7 @@ export interface StudentTimetable {
   my_choices: string[];
   my_backups: string[];
   submitted: boolean;
+  deadline_passed: boolean;
   finalised: boolean;
   reassignment_enabled: boolean;
   my_assignment: Record<string, string> | null;
@@ -141,6 +142,7 @@ export interface PublicFill {
   my_choices: string[];
   my_backups: string[];
   submitted: boolean;
+  deadline_passed: boolean;
 }
 
 export interface SolveResult {

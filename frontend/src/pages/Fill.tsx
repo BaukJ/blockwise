@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api, ApiError, type PublicFill } from "../lib/api";
 import ChoiceFields from "../components/ChoiceFields";
 import { checkRules } from "../lib/rules";
@@ -75,9 +75,22 @@ export default function Fill() {
         ) : !data ? (
           <p className="text-center text-slate-400">Loading…</p>
         ) : doneNow || data.submitted ? (
-          <div className="card text-center">
+          <div className="card space-y-3 text-center">
             <p className="text-emerald-600">✓ Your choices are in. Thank you!</p>
-            <p className="mt-1 text-sm text-slate-400">You can close this page.</p>
+            <p className="text-sm text-slate-400">You can close this page.</p>
+            <Link to="/" className="btn-ghost">
+              Go to Blockwise
+            </Link>
+          </div>
+        ) : data.deadline_passed ? (
+          <div className="card space-y-3 text-center">
+            <p className="text-red-600">The deadline for choosing has passed.</p>
+            <p className="text-sm text-slate-400">
+              Please speak to your teacher if you still need to submit.
+            </p>
+            <Link to="/" className="btn-ghost">
+              Go to Blockwise
+            </Link>
           </div>
         ) : (
           <form onSubmit={submit} className="card space-y-4">

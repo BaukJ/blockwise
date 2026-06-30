@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     admin_endpoints_enabled: bool = False
     log_level: str = "INFO"
 
+    # Artificial per-request delay (seconds) for locally simulating a Lambda cold
+    # start. Leave at 0 in production.
+    api_delay_seconds: float = 0.0
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property

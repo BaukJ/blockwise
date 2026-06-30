@@ -26,6 +26,7 @@ class FillOut(BaseModel):
     my_choices: list[str]
     my_backups: list[str]
     submitted: bool
+    deadline_passed: bool
 
 
 class FillIn(BaseModel):
@@ -53,6 +54,7 @@ def _serialize(tt: TimetableModel, entry: EntryModel) -> FillOut:
         my_choices=list(entry.choices or []),
         my_backups=list(entry.backups or []),
         submitted=entry_ready(entry.status),
+        deadline_passed=bool(tt.deadline and datetime.now(timezone.utc) > tt.deadline),
     )
 
 
@@ -67,6 +69,8 @@ def submit_fill(token: str, body: FillIn):
     tt, entry = _resolve(token)
     if entry_ready(entry.status):
         raise HTTPException(status_code=409, detail="Choices have already been submitted")
+    if tt.deadline and datetime.now(timezone.utc) > tt.deadline:
+        raise HTTPException(status_code=403, detail="The deadline has passed")
 
     choices = [c.strip() for c in body.choices if c.strip()]
     backups = [b.strip() for b in body.backups if b.strip()]

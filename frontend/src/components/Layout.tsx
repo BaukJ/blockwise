@@ -26,7 +26,25 @@ export default function Layout({ children }: { children: ReactNode }) {
           </Link>
 
           {user && (
-            <div className="relative">
+            <div className="relative flex items-center gap-2">
+              {user.active_role && (
+                <button
+                  onClick={() =>
+                    switchTo(user.active_role === "teacher" ? "student" : "teacher")
+                  }
+                  title={`Switch to ${
+                    user.active_role === "teacher" ? "student" : "teacher"
+                  } view`}
+                  className={`rounded-full px-2.5 py-1 text-xs font-medium transition hover:brightness-95 ${
+                    user.active_role === "teacher"
+                      ? "bg-brand-50 text-brand-700 ring-1 ring-brand-600/20"
+                      : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20"
+                  }`}
+                >
+                  {user.active_role === "teacher" ? "🧑‍🏫 Teacher view" : "🎒 Student view"}
+                  <span className="ml-1 opacity-50">⇄</span>
+                </button>
+              )}
               <button
                 className="btn-ghost"
                 onClick={() => setMenuOpen((o) => !o)}
@@ -36,22 +54,10 @@ export default function Layout({ children }: { children: ReactNode }) {
                 <span className="text-lg leading-none">⋮</span>
               </button>
               {menuOpen && (
-                <div className="absolute right-0 z-10 mt-2 w-56 rounded-lg bg-white p-1 shadow-lg ring-1 ring-slate-200">
-                  <div className="px-3 py-1 text-xs uppercase tracking-wide text-slate-400">
-                    Switch view
+                <div className="absolute right-0 top-full z-10 mt-2 w-56 rounded-lg bg-white p-1 shadow-lg ring-1 ring-slate-200">
+                  <div className="truncate px-3 py-1 text-xs text-slate-400">
+                    {user.email}
                   </div>
-                  <button
-                    className="block w-full rounded px-3 py-2 text-left text-sm hover:bg-slate-50"
-                    onClick={() => switchTo("teacher")}
-                  >
-                    Teacher{user.active_role === "teacher" && " ✓"}
-                  </button>
-                  <button
-                    className="block w-full rounded px-3 py-2 text-left text-sm hover:bg-slate-50"
-                    onClick={() => switchTo("student")}
-                  >
-                    Student{user.active_role === "student" && " ✓"}
-                  </button>
                   <div className="my-1 border-t border-slate-100" />
                   <button
                     className="block w-full rounded px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
