@@ -67,13 +67,10 @@ def serialize(j: JobModel) -> JobOut:
 
 
 def _subjects_dict(tt: TimetableModel) -> dict[str, list[int]]:
-    """tt.subjects rows → {subject: [capacity per class]}."""
-    out: dict[str, list[int]] = {}
-    for row in tt.subjects or []:
-        out.setdefault(row["subject"], []).extend(
-            [int(row["class_capacity"])] * int(row["total_classes"])
-        )
-    return out
+    """tt.subjects → {subject: [capacity per class]} (handles old + new shapes)."""
+    from app.timetable.routes import normalize_subjects
+
+    return {s["subject"]: list(s["capacities"]) for s in normalize_subjects(tt.subjects)}
 
 
 def _students(timetable_id: str) -> list[dict]:

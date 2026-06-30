@@ -76,8 +76,7 @@ export interface User {
 
 export interface Subject {
   subject: string;
-  total_classes: number;
-  class_capacity: number;
+  capacities: number[]; // one entry per parallel class
 }
 
 export type EntryStatus = "pending" | "draft" | "submitted" | "teacher_submitted";

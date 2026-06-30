@@ -29,12 +29,8 @@ function buildChips(tt: Timetable): ClassChip[] {
   const chips: ClassChip[] = [];
   let idx = 0;
   for (const s of tt.subjects) {
-    for (let k = 0; k < s.total_classes; k++) {
-      chips.push({
-        id: `c${idx++}`,
-        subject: s.subject,
-        capacity: s.class_capacity,
-      });
+    for (const cap of s.capacities) {
+      chips.push({ id: `c${idx++}`, subject: s.subject, capacity: cap });
     }
   }
   return chips;

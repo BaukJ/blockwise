@@ -23,8 +23,26 @@ router = APIRouter(prefix="/timetable", tags=["timetable"])
 
 class SubjectIn(BaseModel):
     subject: str
-    total_classes: int
-    class_capacity: int
+    capacities: list[int]  # one entry per parallel class
+
+
+def normalize_subjects(raw: list[dict]) -> list[dict]:
+    """Return subjects as {subject, capacities:[int]}, upgrading the older
+    {subject, total_classes, class_capacity} rows (and merging duplicate names)."""
+    grouped: dict[str, list[int]] = {}
+    order: list[str] = []
+    for r in raw or []:
+        name = r["subject"]
+        if name not in grouped:
+            grouped[name] = []
+            order.append(name)
+        if "capacities" in r:
+            grouped[name].extend(int(c) for c in r["capacities"])
+        else:
+            grouped[name].extend(
+                [int(r.get("class_capacity", 30))] * int(r.get("total_classes", 1))
+            )
+    return [{"subject": n, "capacities": grouped[n]} for n in order]
 
 
 class TimetableCreate(BaseModel):
@@ -72,7 +90,7 @@ def serialize(tt: TimetableModel) -> TimetableOut:
         num_blocks=int(tt.num_blocks),
         options_required=int(tt.options_required),
         backups_allowed=int(tt.backups_allowed),
-        subjects=list(tt.subjects or []),
+        subjects=normalize_subjects(tt.subjects),
         rules=list(tt.rules or []),
         finalised_job_id=tt.finalised_job_id,
         reassignment_enabled=bool(tt.reassignment_enabled),
@@ -156,9 +174,24 @@ def update_timetable(
     if body.deadline is not None:
         actions.append(TimetableModel.deadline.set(body.deadline))
     if body.subjects is not None:
-        actions.append(
-            TimetableModel.subjects.set([s.model_dump() for s in body.subjects])
-        )
+        cleaned = []
+        seen: set[str] = set()
+        for s in body.subjects:
+            name = s.subject.strip()
+            if not name:
+                continue
+            if name.lower() in seen:
+                raise HTTPException(
+                    status_code=400, detail=f"Duplicate subject '{name}'"
+                )
+            seen.add(name.lower())
+            caps = [int(c) for c in s.capacities if int(c) >= 1]
+            if not caps:
+                raise HTTPException(
+                    status_code=400, detail=f"'{name}' needs at least one capacity"
+                )
+            cleaned.append({"subject": name, "capacities": caps})
+        actions.append(TimetableModel.subjects.set(cleaned))
     if body.rules is not None:
         actions.append(TimetableModel.rules.set(body.rules))
     if body.reassignment_enabled is not None:

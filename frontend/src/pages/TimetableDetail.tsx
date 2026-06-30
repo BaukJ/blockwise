@@ -171,27 +171,64 @@ function SubjectsCard({ tt, onSaved }: { tt: Timetable; onSaved: () => void }) {
   const [csvOpen, setCsvOpen] = useState(false);
   const [csv, setCsv] = useState("");
   const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
   const nameRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-  function update(i: number, patch: Partial<Subject>) {
-    setRows((r) => r.map((row, j) => (j === i ? { ...row, ...patch } : row)));
+  function setName(i: number, subject: string) {
+    setRows((r) => r.map((row, j) => (j === i ? { ...row, subject } : row)));
   }
-  function add() {
+  function setCapacity(i: number, k: number, value: number) {
+    setRows((r) =>
+      r.map((row, j) =>
+        j === i
+          ? { ...row, capacities: row.capacities.map((c, m) => (m === k ? value : c)) }
+          : row,
+      ),
+    );
+  }
+  function addCapacity(i: number) {
+    setRows((r) =>
+      r.map((row, j) =>
+        j === i ? { ...row, capacities: [...row.capacities, 30] } : row,
+      ),
+    );
+  }
+  function removeCapacity(i: number, k: number) {
+    setRows((r) =>
+      r.map((row, j) =>
+        j === i
+          ? { ...row, capacities: row.capacities.filter((_, m) => m !== k) }
+          : row,
+      ),
+    );
+  }
+  function addSubject() {
     const newIndex = rows.length;
-    setRows((r) => [...r, { subject: "", total_classes: 1, class_capacity: 30 }]);
-    // Focus the new subject name once it has rendered.
+    setRows((r) => [...r, { subject: "", capacities: [30] }]);
     requestAnimationFrame(() => nameRefs.current[newIndex]?.focus());
   }
-  function remove(i: number) {
+  function removeSubject(i: number) {
     setRows((r) => r.filter((_, j) => j !== i));
   }
+
   async function save() {
+    setErr(null);
+    const named = rows.filter((r) => r.subject.trim());
+    const lower = named.map((r) => r.subject.trim().toLowerCase());
+    const dup = lower.find((n, i) => lower.indexOf(n) !== i);
+    if (dup) {
+      setErr(`Duplicate subject "${dup}". Use "+ capacity" for differently-sized classes.`);
+      return;
+    }
     setSaving(true);
-    await api.patch(`/timetable/${tt.id}`, {
-      subjects: rows.filter((r) => r.subject.trim()),
-    });
-    setSaving(false);
-    onSaved();
+    try {
+      await api.patch(`/timetable/${tt.id}`, { subjects: named });
+      onSaved();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
   }
   async function importCsv() {
     await api.post(`/timetable/${tt.id}/subjects/csv`, { csv_text: csv });
@@ -212,7 +249,8 @@ function SubjectsCard({ tt, onSaved }: { tt: Timetable; onSaved: () => void }) {
       {csvOpen && (
         <div className="space-y-2 rounded-lg bg-slate-50 p-3">
           <p className="text-xs text-slate-500">
-            Columns: <code>subject, total_classes, class_capacity</code>
+            Columns: <code>subject, total_classes, class_capacity</code>. Repeat a
+            subject on multiple rows for differently-sized classes.
           </p>
           <input
             type="file"
@@ -233,44 +271,52 @@ function SubjectsCard({ tt, onSaved }: { tt: Timetable; onSaved: () => void }) {
       )}
 
       <div className="space-y-2">
-        <div className="grid grid-cols-[1fr_6rem_6rem_2rem] gap-2 text-xs text-slate-400">
-          <span>Subject</span>
-          <span>Classes</span>
-          <span>Capacity</span>
-          <span />
-        </div>
         {rows.map((row, i) => (
-          <div key={i} className="grid grid-cols-[1fr_6rem_6rem_2rem] gap-2">
+          <div key={i} className="flex flex-wrap items-center gap-2">
             <input
-              className="input"
+              className="input w-48"
+              placeholder="Subject name"
               value={row.subject}
               ref={(el) => (nameRefs.current[i] = el)}
-              onChange={(e) => update(i, { subject: e.target.value })}
+              onChange={(e) => setName(i, e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
-                  add();
+                  addSubject();
                 }
               }}
             />
-            <input
-              className="input"
-              type="number"
-              min={1}
-              value={row.total_classes}
-              onChange={(e) => update(i, { total_classes: Number(e.target.value) })}
-            />
-            <input
-              className="input"
-              type="number"
-              min={1}
-              value={row.class_capacity}
-              onChange={(e) => update(i, { class_capacity: Number(e.target.value) })}
-            />
+            <span className="text-xs text-slate-400">capacities:</span>
+            {row.capacities.map((cap, k) => (
+              <span key={k} className="inline-flex items-center">
+                <input
+                  className="input w-20"
+                  type="number"
+                  min={1}
+                  value={cap}
+                  onChange={(e) => setCapacity(i, k, Number(e.target.value))}
+                />
+                {row.capacities.length > 1 && (
+                  <button
+                    className="ml-1 text-slate-300 hover:text-red-600"
+                    onClick={() => removeCapacity(i, k)}
+                    aria-label="Remove capacity"
+                  >
+                    ✕
+                  </button>
+                )}
+              </span>
+            ))}
             <button
-              className="text-slate-400 hover:text-red-600"
-              onClick={() => remove(i)}
-              aria-label="Remove"
+              className="text-xs text-brand-600 hover:underline"
+              onClick={() => addCapacity(i)}
+            >
+              + capacity
+            </button>
+            <button
+              className="ml-auto text-slate-400 hover:text-red-600"
+              onClick={() => removeSubject(i)}
+              aria-label="Remove subject"
             >
               ✕
             </button>
@@ -281,8 +327,14 @@ function SubjectsCard({ tt, onSaved }: { tt: Timetable; onSaved: () => void }) {
         )}
       </div>
 
+      <p className="text-xs text-slate-400">
+        Each capacity is one class. A subject with two capacities runs two parallel
+        classes (e.g. Maths at 30 and 25).
+      </p>
+      {err && <p className="text-sm text-red-600">{err}</p>}
+
       <div className="flex gap-2">
-        <button className="btn-ghost" onClick={add}>
+        <button className="btn-ghost" onClick={addSubject}>
           + Add subject
         </button>
         <button className="btn-primary" onClick={save} disabled={saving}>

@@ -25,3 +25,6 @@
 [x]  Have a checkbox next to the "Add students" button to email all the students. The email will tell them that they need to sign up (or login) and fill in their choices for that timetable.
 [x]  Emails should be setup via SES
 [x]  There should be a "magic link" button next to each student that is in draft status, so that they can be sent a one-time, time-boxed link to fill in their details without needing to sign in.
+
+[x] Add validation so that the subjects cannot be duplicated (same name). To cater for the "maths with 2 different capacities", add an "add capacity" button to each subject line, when clicked it adds another capacity option for that subject
+

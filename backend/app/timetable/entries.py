@@ -311,18 +311,19 @@ def import_subjects_csv(
     reader = csv.DictReader(io.StringIO(body.csv_text))
     if not reader.fieldnames or "subject" not in reader.fieldnames:
         raise HTTPException(status_code=400, detail="CSV needs a 'subject' column")
-    subjects: list[dict] = []
+    # Group rows by subject name — duplicate rows become extra capacities.
+    grouped: dict[str, list[int]] = {}
+    order: list[str] = []
     for row in reader:
         name = (row.get("subject") or "").strip()
         if not name or name.startswith("#"):
             continue
-        subjects.append(
-            {
-                "subject": name,
-                "total_classes": int(row.get("total_classes") or 1),
-                "class_capacity": int(row.get("class_capacity") or 30),
-            }
-        )
+        if name not in grouped:
+            grouped[name] = []
+            order.append(name)
+        cap = int(row.get("class_capacity") or 30)
+        grouped[name].extend([cap] * int(row.get("total_classes") or 1))
+    subjects = [{"subject": n, "capacities": grouped[n]} for n in order]
     tt.update(actions=[TimetableModel.subjects.set(subjects)])
     return {"ok": True, "subjects": subjects}
 
