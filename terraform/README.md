@@ -33,6 +33,29 @@ terraform init
 terraform apply
 ```
 
+## Multiple sites (workspaces)
+
+Each Terraform **workspace** is an independent deployment with its own state, tables,
+Lambdas, bucket and domain. The `default` workspace is the primary `blockwise.bauk.uk`
+site and reads no config. Any other workspace `abc` reads `terraform/sites/abc.yml`:
+
+```yaml
+subdomain: school-x                 # → school-x.blockwise.bauk.uk
+allowed_email_domains: ["@bauk.uk"]  # restrict sign-ups (optional)
+```
+
+```bash
+terraform workspace new school-x          # or: terraform workspace select school-x
+cp sites/example.yml sites/school-x.yml   # edit subdomain / allowed_email_domains
+terraform apply
+```
+
+Per-workspace resources are name-suffixed (`blockwise-backend-school-x`,
+`uk.bauk.blockwise-school-x`, table prefix `blockwise-school-x`, …) so sites in the
+same AWS account don't collide. The Route53 zone `blockwise.bauk.uk` is shared; each
+site gets its own subdomain record + ACM cert. `allowed_email_domains` is passed to the
+backend Lambda (`ALLOWED_EMAIL_DOMAINS`) to limit who can sign up.
+
 Optional Google sign-in:
 
 ```bash

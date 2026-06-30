@@ -9,7 +9,7 @@ from fastapi.responses import RedirectResponse
 
 from app.config import settings
 from app.models import LoginMethod, UserModel
-from app.security import create_access_token, set_auth_cookie
+from app.security import create_access_token, email_allowed, set_auth_cookie
 
 router = APIRouter()
 
@@ -43,6 +43,8 @@ async def callback(request: Request):
     email = (info.get("email") or "").lower()
     if not email:
         return RedirectResponse(_frontend_url("/login?error=google"))
+    if not email_allowed(email):
+        return RedirectResponse(_frontend_url("/login?error=domain"))
 
     try:
         user = UserModel.get(email)

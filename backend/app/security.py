@@ -1,6 +1,7 @@
 """JWT cookie auth + password hashing + dependencies."""
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -12,6 +13,48 @@ from app.config import settings
 from app.models import UserModel
 
 ALGORITHM = "HS256"
+
+
+# ── Password policy ──────────────────────────────────────────────────────────
+PASSWORD_MIN_LENGTH = 8
+
+
+def validate_password(password: str) -> None:
+    """At least 8 chars, with a letter and a number. Raises 400 otherwise."""
+    if (
+        len(password) < PASSWORD_MIN_LENGTH
+        or not re.search(r"[A-Za-z]", password)
+        or not re.search(r"\d", password)
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Password must be at least 8 characters and include a letter and a number.",
+        )
+
+
+# ── Email domain restriction ─────────────────────────────────────────────────
+def _allowed_domains() -> list[str]:
+    raw = settings.allowed_email_domains or ""
+    out = []
+    for d in raw.split(","):
+        d = d.strip().lower()
+        if d:
+            out.append(d if d.startswith("@") else "@" + d)
+    return out
+
+
+def assert_email_allowed(email: str) -> None:
+    domains = _allowed_domains()
+    if domains and not any(email.lower().endswith(d) for d in domains):
+        raise HTTPException(
+            status_code=403,
+            detail="Sign-ups are restricted to approved email domains for this site.",
+        )
+
+
+def email_allowed(email: str) -> bool:
+    domains = _allowed_domains()
+    return not domains or any(email.lower().endswith(d) for d in domains)
 
 
 # ── Passwords ──────────────────────────────────────────────────────────────

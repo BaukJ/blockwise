@@ -1,19 +1,31 @@
-import { useState } from "react";
-import { Link, Navigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { api, ApiError, type User } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { Spinner } from "../components/Spinner";
 
 type Mode = "login" | "register" | "forgot";
 
+// Mirrors the backend policy: 8+ chars with a letter and a number.
+const PASSWORD_RE = /^(?=.*[A-Za-z])(?=.*\d).{8,}$/;
+
 export default function Login() {
   const { user, checked, maybeAuthed, refresh } = useAuth();
+  const [params] = useSearchParams();
   const [mode, setMode] = useState<Mode>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Surface redirect errors from Google sign-in.
+  useEffect(() => {
+    const e = params.get("error");
+    if (e === "domain")
+      setErr("That email domain isn’t permitted to sign up to this site.");
+    else if (e === "google") setErr("Google sign-in failed. Please try again.");
+  }, [params]);
 
   if (user) return <Navigate to="/" replace />;
   // We think there's a remembered session and are verifying it — show a loader over
@@ -24,6 +36,10 @@ export default function Login() {
     e.preventDefault();
     setErr(null);
     setMsg(null);
+    if (mode === "register" && !PASSWORD_RE.test(password)) {
+      setErr("Password must be at least 8 characters and include a letter and a number.");
+      return;
+    }
     setBusy(true);
     try {
       if (mode === "login") {
@@ -78,6 +94,11 @@ export default function Login() {
                 onChange={(e) => setPassword(e.target.value)}
                 required
               />
+            )}
+            {mode === "register" && (
+              <p className="text-xs text-slate-400">
+                At least 8 characters, including a letter and a number.
+              </p>
             )}
             {err && <p className="text-sm text-red-600">{err}</p>}
             {msg && <p className="text-sm text-emerald-600">{msg}</p>}

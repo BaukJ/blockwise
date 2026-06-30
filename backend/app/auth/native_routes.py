@@ -10,11 +10,13 @@ from app.config import settings
 from app.email import send_email
 from app.models import LoginMethod, UserModel
 from app.security import (
+    assert_email_allowed,
     create_access_token,
     hash_password,
     make_timed_token,
     read_timed_token,
     set_auth_cookie,
+    validate_password,
     verify_password,
 )
 from app.auth.routes import serialize_user
@@ -49,6 +51,8 @@ def _frontend_url(path: str) -> str:
 @router.post("/register")
 def register(body: RegisterIn):
     email = body.email.lower()
+    assert_email_allowed(email)
+    validate_password(body.password)
     try:
         UserModel.get(email)
         raise HTTPException(status_code=409, detail="Account already exists")
@@ -116,6 +120,7 @@ def password_reset(body: dict):
 
 @router.post("/password-reset/confirm")
 def password_reset_confirm(body: ResetConfirmIn, response: Response):
+    validate_password(body.new_password)
     data = read_timed_token(body.token, RESET_SALT)
     email = data["email"]
     try:

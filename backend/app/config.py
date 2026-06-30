@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     # SES sender
     email_sender: str = "noreply@blockwise.bauk.uk"
 
+    # Restrict sign-ups to these email domains (comma-separated, e.g.
+    # "@bauk.uk,@bauk.org"). Empty = anyone may sign up. Set per-deployment.
+    allowed_email_domains: str = ""
+
     # Async solver job queue (worker Lambda). When unset locally we solve inline.
     solver_function_name: Optional[str] = None
 

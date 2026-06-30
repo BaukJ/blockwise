@@ -1,0 +1,13 @@
+# Sample per-workspace site config. Copy to <workspace-name>.yml and run
+# `terraform workspace select <workspace-name>` before applying.
+#
+# This file is read for the "example" workspace; the default workspace ignores
+# all site configs and deploys the primary blockwise.bauk.uk site.
+
+# Deploys to <subdomain>.blockwise.bauk.uk. Omit for the apex (default workspace only).
+subdomain: example
+
+# Optional: restrict sign-ups to these email domains. Empty/omitted = anyone.
+allowed_email_domains:
+  - "@bauk.uk"
+  - "@bauk.org"

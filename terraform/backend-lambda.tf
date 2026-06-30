@@ -30,7 +30,7 @@ locals {
 module "solver_lambda" {
   source = "terraform-aws-modules/lambda/aws"
 
-  function_name = "blockwise-solver"
+  function_name = "blockwise-solver${local.suffix}"
   handler       = "lambda_worker.lambda_handler"
   runtime       = "python3.12"
   timeout       = 900  # ILP solves can run for minutes
@@ -40,8 +40,9 @@ module "solver_lambda" {
   build_in_docker = true # native wheels (highspy, pydantic-core, bcrypt) need manylinux
 
   environment_variables = {
-    SECRET_KEY = random_password.secret_key.result
-    LOG_LEVEL  = "INFO"
+    SECRET_KEY   = random_password.secret_key.result
+    TABLE_PREFIX = "blockwise${local.suffix}"
+    LOG_LEVEL    = "INFO"
   }
 
   attach_policy_json = true
@@ -52,7 +53,7 @@ module "solver_lambda" {
 module "backend_lambda" {
   source = "terraform-aws-modules/lambda/aws"
 
-  function_name = "blockwise-backend"
+  function_name = "blockwise-backend${local.suffix}"
   handler       = "lambda_handler.lambda_handler"
   runtime       = "python3.12"
   timeout       = 300 # admin/table tasks can take longer
@@ -62,12 +63,14 @@ module "backend_lambda" {
   build_in_docker = true
 
   environment_variables = {
-    SECRET_KEY           = random_password.secret_key.result
-    GOOGLE_CLIENT_ID     = var.google_client_id
-    GOOGLE_CLIENT_SECRET = var.google_client_secret
-    SOLVER_FUNCTION_NAME = module.solver_lambda.lambda_function_name
-    DOMAIN               = local.my_domain
-    LOG_LEVEL            = "INFO"
+    SECRET_KEY            = random_password.secret_key.result
+    GOOGLE_CLIENT_ID      = var.google_client_id
+    GOOGLE_CLIENT_SECRET  = var.google_client_secret
+    SOLVER_FUNCTION_NAME  = module.solver_lambda.lambda_function_name
+    DOMAIN                = local.my_domain
+    TABLE_PREFIX          = "blockwise${local.suffix}"
+    ALLOWED_EMAIL_DOMAINS = local.allowed_email_domains
+    LOG_LEVEL             = "INFO"
   }
 
   attach_policy_json = true

@@ -14,6 +14,10 @@ export default function Reset() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
+    if (!/^(?=.*[A-Za-z])(?=.*\d).{8,}$/.test(password)) {
+      setErr("Password must be at least 8 characters and include a letter and a number.");
+      return;
+    }
     try {
       await api.post("/auth/native/password-reset/confirm", {
         token,
@@ -40,6 +44,9 @@ export default function Reset() {
           onChange={(e) => setPassword(e.target.value)}
           required
         />
+        <p className="text-xs text-slate-400">
+          At least 8 characters, including a letter and a number.
+        </p>
         {err && <p className="text-sm text-red-600">{err}</p>}
         <button className="btn-primary w-full">Set password</button>
       </form>

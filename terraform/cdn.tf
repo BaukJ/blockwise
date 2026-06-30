@@ -1,5 +1,5 @@
 resource "aws_s3_bucket" "frontend" {
-  bucket = "uk.bauk.blockwise"
+  bucket = local.bucket_name
 }
 
 # https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-s3.html
@@ -31,7 +31,6 @@ resource "aws_s3_bucket_policy" "frontend" {
 
 locals {
   s3_origin_id = "myS3Origin"
-  my_domain    = "blockwise.bauk.uk"
 }
 
 resource "aws_acm_certificate" "blockwise" {
@@ -67,14 +66,14 @@ resource "aws_acm_certificate_validation" "blockwise" {
 }
 
 resource "aws_cloudfront_origin_access_control" "default" {
-  name                              = "blockwise-default-oac"
+  name                              = "blockwise-default-oac${local.suffix}"
   origin_access_control_origin_type = "s3"
   signing_behavior                  = "always"
   signing_protocol                  = "sigv4"
 }
 
 resource "aws_cloudfront_origin_access_control" "lambda" {
-  name                              = "blockwise-lambda-oac"
+  name                              = "blockwise-lambda-oac${local.suffix}"
   origin_access_control_origin_type = "lambda"
   signing_behavior                  = "always"
   signing_protocol                  = "sigv4"
@@ -165,9 +164,9 @@ resource "aws_cloudfront_distribution" "cdn" {
   }
 }
 
-# Route53 records for the CloudFront aliases
+# Route53 records for the CloudFront aliases (subdomains live in the same zone)
 data "aws_route53_zone" "blockwise_zone" {
-  name = local.my_domain
+  name = local.zone_name
 }
 
 resource "aws_route53_record" "blockwise" {
