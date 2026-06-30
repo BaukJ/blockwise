@@ -13,6 +13,7 @@ import {
 import Processing from "../components/Processing";
 import ChoiceFields from "../components/ChoiceFields";
 import CloneModal from "../components/CloneModal";
+import AsyncButton from "../components/AsyncButton";
 import { checkRules } from "../lib/rules";
 
 function readFile(e: React.ChangeEvent<HTMLInputElement>, onText: (t: string) => void) {
@@ -173,8 +174,30 @@ function SubjectsCard({ tt, onSaved }: { tt: Timetable; onSaved: () => void }) {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [defaultCapacity, setDefaultCapacity] = useState(30);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
   const nameRefs = useRef<(HTMLInputElement | null)[]>([]);
-  const POPULAR = ["Maths", "English", "Science"];
+
+  // Quick-add list: distinct subjects from the teacher's OTHER timetables, falling
+  // back to a static starter list when they have none.
+  useEffect(() => {
+    api
+      .get<Timetable[]>("/timetable")
+      .then((list) => {
+        const names: string[] = [];
+        for (const t of list) {
+          if (t.id === tt.id) continue;
+          for (const s of t.subjects) {
+            if (!names.some((n) => n.toLowerCase() === s.subject.toLowerCase()))
+              names.push(s.subject);
+          }
+        }
+        setSuggestions(names.length ? names : ["Maths", "English", "Science"]);
+      })
+      .catch(() => setSuggestions(["Maths", "English", "Science"]));
+  }, [tt.id]);
+
+  const present = new Set(rows.map((r) => r.subject.trim().toLowerCase()));
+  const quickAdd = suggestions.filter((s) => !present.has(s.toLowerCase())).slice(0, 8);
 
   function setName(i: number, subject: string) {
     setRows((r) => r.map((row, j) => (j === i ? { ...row, subject } : row)));
@@ -291,9 +314,9 @@ function SubjectsCard({ tt, onSaved }: { tt: Timetable; onSaved: () => void }) {
             onChange={(e) => setCsv(e.target.value)}
             placeholder={"subject,total_classes,class_capacity\nMaths,2,30"}
           />
-          <button className="btn-primary" onClick={importCsv} disabled={!csv.trim()}>
+          <AsyncButton onClick={importCsv} disabled={!csv.trim()} pendingText="Importing…">
             Import
-          </button>
+          </AsyncButton>
         </div>
       )}
 
@@ -367,16 +390,20 @@ function SubjectsCard({ tt, onSaved }: { tt: Timetable; onSaved: () => void }) {
         <button className="btn-primary" onClick={save} disabled={saving}>
           {saving ? "Saving…" : "Save subjects"}
         </button>
-        <span className="ml-2 text-xs text-slate-400">Quick add:</span>
-        {POPULAR.map((p) => (
-          <button
-            key={p}
-            className="rounded-full px-2.5 py-1 text-xs text-slate-500 ring-1 ring-slate-200 hover:bg-slate-50"
-            onClick={() => addPopular(p)}
-          >
-            + {p}
-          </button>
-        ))}
+        {quickAdd.length > 0 && (
+          <>
+            <span className="ml-2 text-xs text-slate-400">Quick add:</span>
+            {quickAdd.map((p) => (
+              <button
+                key={p}
+                className="rounded-full px-2.5 py-1 text-xs text-slate-500 ring-1 ring-slate-200 hover:bg-slate-50"
+                onClick={() => addPopular(p)}
+              >
+                + {p}
+              </button>
+            ))}
+          </>
+        )}
       </div>
     </div>
   );
@@ -727,28 +754,30 @@ function EntryTable({ entries, actions }: { entries: Entry[]; actions: EntryActi
                   Edit
                 </button>
                 {(e.status === "pending" || e.status === "draft") && (
-                  <button
+                  <AsyncButton
                     className="text-brand-600 hover:underline"
+                    pendingText="…"
                     onClick={() => actions.onMagicLink(e.student_key)}
                   >
                     Magic link
-                  </button>
+                  </AsyncButton>
                 )}
                 {(e.status === "submitted" || e.status === "teacher_submitted") && (
-                  <button
+                  <AsyncButton
                     className="text-slate-500 hover:underline"
+                    pendingText="…"
                     onClick={() => actions.onRevert(e.student_key)}
                   >
                     Revert to draft
-                  </button>
+                  </AsyncButton>
                 )}
-                <button
+                <AsyncButton
                   className="text-slate-300 hover:text-red-600"
+                  pendingText="…"
                   onClick={() => actions.onDelete(e.student_key)}
-                  aria-label="Delete"
                 >
                   ✕
-                </button>
+                </AsyncButton>
               </div>
             </td>
           </tr>
@@ -860,11 +889,12 @@ function UiEntry({
   const [choices, setChoices] = useState<string[]>(empty);
   const [backups, setBackups] = useState<string[]>(emptyBackups);
   const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const nameRef = useRef<HTMLInputElement | null>(null);
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (!name.trim() || busy) return;
     setErr(null);
     const filled = choices.filter(Boolean);
     if (filled.length === tt.options_required) {
@@ -874,6 +904,7 @@ function UiEntry({
         return;
       }
     }
+    setBusy(true);
     try {
       await api.post(`/timetable/${tt.id}/entries`, {
         name: name.trim(),
@@ -888,6 +919,8 @@ function UiEntry({
       requestAnimationFrame(() => nameRef.current?.focus());
     } catch (e2) {
       setErr(e2 instanceof ApiError ? e2.message : "Could not add student");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -916,7 +949,9 @@ function UiEntry({
           setBackups={setBackups}
         />
         {err && <p className="text-sm text-red-600">{err}</p>}
-        <button className="btn-primary w-full">+ Add student</button>
+        <button className="btn-primary w-full" disabled={busy}>
+          {busy ? "Adding…" : "+ Add student"}
+        </button>
       </form>
     </div>
   );
@@ -961,9 +996,9 @@ function CsvEntry({
           placeholder={"student_name,choice1,choice2,choice3,choice4,backup\nAlice,Maths,Art,,,"}
         />
         {err && <p className="text-sm text-red-600">{err}</p>}
-        <button className="btn-primary" onClick={importCsv} disabled={!csv.trim()}>
+        <AsyncButton onClick={importCsv} disabled={!csv.trim()} pendingText="Importing…">
           Import students
-        </button>
+        </AsyncButton>
       </div>
       <EntryTable entries={entries} actions={actions} />
     </div>
@@ -1046,9 +1081,9 @@ function EmailEntry({
             />
             Email students an invite to sign up and fill in their choices
           </label>
-          <button className="btn-primary" onClick={add} disabled={!text.trim()}>
+          <AsyncButton onClick={add} disabled={!text.trim()} pendingText="Adding…">
             Add students
-          </button>
+          </AsyncButton>
         </div>
       </div>
       <EntryTable entries={entries} actions={actions} />

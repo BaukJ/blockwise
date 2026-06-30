@@ -8,7 +8,7 @@ import Verify from "./pages/Verify";
 import Reset from "./pages/Reset";
 import Fill from "./pages/Fill";
 import RoleChoice from "./pages/RoleChoice";
-import Home from "./pages/Home";
+import Landing from "./pages/Landing";
 import TeacherDashboard from "./pages/TeacherDashboard";
 import TimetableDetail from "./pages/TimetableDetail";
 import StudentDashboard from "./pages/StudentDashboard";
@@ -24,7 +24,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="/verify" element={<Verify />} />
           <Route path="/reset" element={<Reset />} />
           <Route path="/fill" element={<Fill />} />
-          <Route path="/" element={<Protected><Home /></Protected>} />
+          <Route path="/" element={<Landing />} />
           <Route path="/choose" element={<Protected><RoleChoice /></Protected>} />
           <Route path="/teacher" element={<Protected><TeacherDashboard /></Protected>} />
           <Route path="/teacher/timetable/:id" element={<Protected><TimetableDetail /></Protected>} />

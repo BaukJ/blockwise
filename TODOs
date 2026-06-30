@@ -35,3 +35,7 @@
 [x]  Rename capacities to classes
 [x]  To the right of "Save Subjects" there should be some less prominent buttons to add popular subjects (e.g.: "+ Maths"). There should be 3 options, and when one is selected it pre-populates the subject row.
 [x]  To the right of the "Subjects" heading in the teacher view, there should be a "default capacity" box defaulting to 30. If the teacher changes this, then adds subjects, they default to this capacity. But clicking + on a subject line will default to the same capacity as the last capacity for that subject.
+
+[x]  The quick add subjects should not show what's currently there. It should pre-populate these from subjects that that teacher has on other timetables. If there are no other timetables, then a static list can be added. If the static list was added and there's no other timetables or all other subjects were also added, this list is fine to be empty with no more buttons.
+[x]  When I added a 2s delay, lots of the UI felt bad. Buttons like the "Add Student" button would appear unpressed until the 2s finished.
+[x]  The root page "/" sends a redirect to /login that goes via the API. Ideally I want "/" to be a landing page that determines if the user is logged in. If the user is not logged in, no API call to the backend is needed to the initial page load is snappy. If the app is unsure for whatever reason and needs to check with the API if the user is logged in, then it should do that behind the scenes.

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api, type Job, type Timetable } from "../lib/api";
+import AsyncButton from "./AsyncButton";
 
 export default function SolutionView({
   tt,
@@ -65,13 +66,13 @@ export default function SolutionView({
       </div>
 
       <div className="flex items-center gap-3">
-        <button
-          className="btn-primary"
+        <AsyncButton
           onClick={finalise}
           disabled={isFinalised}
+          pendingText="Finalising…"
         >
           {isFinalised ? "Finalised" : "Finalise this solution"}
-        </button>
+        </AsyncButton>
         <button
           className="text-sm text-brand-600"
           onClick={() => setShowStudents((s) => !s)}
