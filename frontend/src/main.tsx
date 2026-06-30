@@ -8,6 +8,7 @@ import Verify from "./pages/Verify";
 import Reset from "./pages/Reset";
 import Fill from "./pages/Fill";
 import Docs from "./pages/Docs";
+import Support from "./pages/Support";
 import { ExampleTeacher, ExampleStudent, ExampleIndex } from "./pages/Example";
 import RoleChoice from "./pages/RoleChoice";
 import Landing from "./pages/Landing";
@@ -28,6 +29,7 @@ function App() {
           <Route path="/fill" element={<Fill />} />
           <Route path="/docs" element={<Docs />} />
           <Route path="/docs/:slug" element={<Docs />} />
+          <Route path="/support" element={<Support />} />
           <Route path="/" element={<Landing />} />
           <Route path="/choose" element={<Protected><RoleChoice /></Protected>} />
           <Route path="/teacher" element={<Protected><TeacherDashboard /></Protected>} />

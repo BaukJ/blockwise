@@ -85,6 +85,13 @@ export default function Layout({ children }: { children: ReactNode }) {
                   >
                     Docs
                   </Link>
+                  <Link
+                    to="/support"
+                    className="block rounded px-3 py-2 text-left text-sm hover:bg-slate-50"
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    Support
+                  </Link>
                   <button
                     className="block w-full rounded px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
                     onClick={async () => {
