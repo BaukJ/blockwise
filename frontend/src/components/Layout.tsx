@@ -113,6 +113,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       <footer className="border-t border-slate-200 bg-white">
         <div className="mx-auto max-w-5xl px-4 py-6 text-center text-sm text-slate-400">
           Blockwise · timetable block optimisation · © {new Date().getFullYear()}
+          <span className="ml-2 text-slate-300">{__APP_VERSION__}</span>
         </div>
       </footer>
     </div>
