@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type AssignedTimetable } from "../lib/api";
+import { api, ApiError, type AssignedTimetable } from "../lib/api";
+import { Loading, ErrorState } from "../components/Spinner";
 
 function statusOf(t: AssignedTimetable): { label: string; cls: string } {
   if (t.finalised && t.reassignment_enabled)
@@ -13,19 +14,30 @@ function statusOf(t: AssignedTimetable): { label: string; cls: string } {
 export default function StudentDashboard() {
   const [items, setItems] = useState<AssignedTimetable[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    api.get<AssignedTimetable[]>("/student/timetables").then((d) => {
-      setItems(d);
-      setLoading(false);
-    });
-  }, []);
+  function load() {
+    setLoading(true);
+    api
+      .get<AssignedTimetable[]>("/student/timetables")
+      .then((d) => {
+        setItems(d);
+        setError(null);
+      })
+      .catch((e) =>
+        setError(e instanceof ApiError ? e.message : "Couldn’t load your timetables"),
+      )
+      .finally(() => setLoading(false));
+  }
+  useEffect(load, []);
 
   return (
     <div>
       <h1 className="mb-6 text-2xl font-semibold">Your timetables</h1>
       {loading ? (
-        <p className="text-slate-400">Loading…</p>
+        <Loading />
+      ) : error ? (
+        <ErrorState message={error} onRetry={load} />
       ) : items.length === 0 ? (
         <div className="card text-center text-slate-500">
           No timetables assigned to you yet.

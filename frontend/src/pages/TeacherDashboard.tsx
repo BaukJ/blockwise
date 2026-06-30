@@ -2,10 +2,12 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, ApiError, type Timetable } from "../lib/api";
 import CloneModal from "../components/CloneModal";
+import { Loading, ErrorState } from "../components/Spinner";
 
 export default function TeacherDashboard() {
   const [items, setItems] = useState<Timetable[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [cloneTarget, setCloneTarget] = useState<Timetable | null>(null);
@@ -13,8 +15,14 @@ export default function TeacherDashboard() {
   const navigate = useNavigate();
 
   async function load() {
-    setItems(await api.get<Timetable[]>("/timetable"));
-    setLoading(false);
+    try {
+      setItems(await api.get<Timetable[]>("/timetable"));
+      setError(null);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Couldn’t load your timetables");
+    } finally {
+      setLoading(false);
+    }
   }
   useEffect(() => {
     load();
@@ -52,7 +60,9 @@ export default function TeacherDashboard() {
       )}
 
       {loading ? (
-        <p className="text-slate-400">Loading…</p>
+        <Loading />
+      ) : error ? (
+        <ErrorState message={error} onRetry={load} />
       ) : items.length === 0 ? (
         <div className="card text-center text-slate-500">
           No timetables yet. Create your first one.

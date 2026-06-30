@@ -1,5 +1,6 @@
 import { Link, Navigate } from "react-router-dom";
 import { useAuth } from "../lib/auth";
+import { Loading } from "../components/Spinner";
 
 // Public landing at "/". Logged-out visitors see this immediately with no API call;
 // a remembered session is verified in the background and then redirected.
@@ -11,12 +12,7 @@ export default function Landing() {
     if (user.active_role === "student") return <Navigate to="/student" replace />;
     return <Navigate to="/choose" replace />;
   }
-  if (!checked && maybeAuthed)
-    return (
-      <div className="grid min-h-screen place-items-center text-slate-400">
-        Loading…
-      </div>
-    );
+  if (!checked && maybeAuthed) return <Loading full />;
 
   return (
     <div className="grid min-h-screen place-items-center bg-slate-50 px-4">

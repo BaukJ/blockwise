@@ -14,6 +14,7 @@ import Processing from "../components/Processing";
 import ChoiceFields from "../components/ChoiceFields";
 import CloneModal from "../components/CloneModal";
 import AsyncButton from "../components/AsyncButton";
+import { Loading, ErrorState } from "../components/Spinner";
 import { checkRules } from "../lib/rules";
 
 function readFile(e: React.ChangeEvent<HTMLInputElement>, onText: (t: string) => void) {
@@ -27,26 +28,36 @@ export default function TimetableDetail() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [progress, setProgress] = useState<Progress | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [cloning, setCloning] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
-    const [t, e, p] = await Promise.all([
-      api.get<Timetable>(`/timetable/${id}`),
-      api.get<Entry[]>(`/timetable/${id}/entries`),
-      api.get<Progress>(`/timetable/${id}/progress`),
-    ]);
-    setTt(t);
-    setEntries(e);
-    setProgress(p);
-    setLoading(false);
+    try {
+      const [t, e, p] = await Promise.all([
+        api.get<Timetable>(`/timetable/${id}`),
+        api.get<Entry[]>(`/timetable/${id}/entries`),
+        api.get<Progress>(`/timetable/${id}/progress`),
+      ]);
+      setTt(t);
+      setEntries(e);
+      setProgress(p);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to load timetable");
+    } finally {
+      setLoading(false);
+    }
   }, [id]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  if (loading || !tt) return <p className="text-slate-400">Loading…</p>;
+  if (loading) return <Loading />;
+  // Only block the whole page on error during the first load; later refresh
+  // failures keep the existing data on screen.
+  if (!tt) return <ErrorState message={error ?? "Not found"} onRetry={load} />;
 
   return (
     <div className="space-y-6">
@@ -246,7 +257,9 @@ function SubjectsCard({ tt, onSaved }: { tt: Timetable; onSaved: () => void }) {
   }
   function addPopular(name: string) {
     if (rows.some((r) => r.subject.trim().toLowerCase() === name.toLowerCase())) return;
-    addSubject(name);
+    // Prepend so the quick-add bar (rendered above the list) stays put — you can
+    // click several in a row without it scrolling away.
+    setRows((r) => [{ subject: name, capacities: [defaultCapacity] }, ...r]);
   }
 
   async function save() {
@@ -320,6 +333,21 @@ function SubjectsCard({ tt, onSaved }: { tt: Timetable; onSaved: () => void }) {
         </div>
       )}
 
+      {quickAdd.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-slate-400">Quick add:</span>
+          {quickAdd.map((p) => (
+            <button
+              key={p}
+              className="rounded-full px-2.5 py-1 text-xs text-slate-500 ring-1 ring-slate-200 hover:bg-slate-50"
+              onClick={() => addPopular(p)}
+            >
+              + {p}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="space-y-2">
         {rows.map((row, i) => (
           <div key={i} className="flex flex-wrap items-center gap-2">
@@ -390,20 +418,6 @@ function SubjectsCard({ tt, onSaved }: { tt: Timetable; onSaved: () => void }) {
         <button className="btn-primary" onClick={save} disabled={saving}>
           {saving ? "Saving…" : "Save subjects"}
         </button>
-        {quickAdd.length > 0 && (
-          <>
-            <span className="ml-2 text-xs text-slate-400">Quick add:</span>
-            {quickAdd.map((p) => (
-              <button
-                key={p}
-                className="rounded-full px-2.5 py-1 text-xs text-slate-500 ring-1 ring-slate-200 hover:bg-slate-50"
-                onClick={() => addPopular(p)}
-              >
-                + {p}
-              </button>
-            ))}
-          </>
-        )}
       </div>
     </div>
   );

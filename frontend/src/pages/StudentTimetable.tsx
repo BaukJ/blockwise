@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, ApiError, type StudentTimetable } from "../lib/api";
 import ChoiceFields from "../components/ChoiceFields";
+import { Loading, ErrorState } from "../components/Spinner";
 import { checkRules } from "../lib/rules";
 
 export default function StudentTimetablePage() {
@@ -25,8 +26,8 @@ export default function StudentTimetablePage() {
     load();
   }, [load]);
 
-  if (loading) return <p className="text-slate-400">Loading…</p>;
-  if (err || !tt) return <p className="text-red-600">{err ?? "Not found"}</p>;
+  if (loading) return <Loading />;
+  if (err || !tt) return <ErrorState message={err ?? "Not found"} onRetry={load} />;
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">

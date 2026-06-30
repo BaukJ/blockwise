@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, ApiError, type PublicFill } from "../lib/api";
 import ChoiceFields from "../components/ChoiceFields";
+import { Loading, ErrorState } from "../components/Spinner";
 import { checkRules } from "../lib/rules";
 
 // Public, no-login page reached via a teacher-issued magic link (?token=...).
@@ -71,9 +72,9 @@ export default function Fill() {
         </div>
 
         {loadErr ? (
-          <div className="card text-center text-red-600">{loadErr}</div>
+          <ErrorState message={loadErr} onRetry={load} />
         ) : !data ? (
-          <p className="text-center text-slate-400">Loading…</p>
+          <Loading />
         ) : doneNow || data.submitted ? (
           <div className="card space-y-3 text-center">
             <p className="text-emerald-600">✓ Your choices are in. Thank you!</p>

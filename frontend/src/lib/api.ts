@@ -26,6 +26,14 @@ async function request<T>(
       credentials: "include",
       signal: controller.signal,
     });
+  } catch (e: any) {
+    // Network failure / timeout — surface a clean error instead of hanging.
+    throw new ApiError(
+      0,
+      e?.name === "AbortError"
+        ? "The server took too long to respond — it may be waking up. Try again."
+        : "Couldn’t reach the server. Please try again.",
+    );
   } finally {
     clearTimeout(timeout);
   }

@@ -1,17 +1,25 @@
 import { type ReactNode, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../lib/auth";
+import { Spinner } from "./Spinner";
 
 // Single place that defines the header + footer wrapping every page.
 export default function Layout({ children }: { children: ReactNode }) {
   const { user, setRole, logout } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [switching, setSwitching] = useState(false);
   const navigate = useNavigate();
 
   async function switchTo(role: "teacher" | "student") {
-    await setRole(role);
-    setMenuOpen(false);
-    navigate(role === "teacher" ? "/teacher" : "/student");
+    if (switching) return;
+    setSwitching(true);
+    try {
+      await setRole(role);
+      setMenuOpen(false);
+      navigate(role === "teacher" ? "/teacher" : "/student");
+    } finally {
+      setSwitching(false);
+    }
   }
 
   return (
@@ -32,17 +40,28 @@ export default function Layout({ children }: { children: ReactNode }) {
                   onClick={() =>
                     switchTo(user.active_role === "teacher" ? "student" : "teacher")
                   }
+                  disabled={switching}
                   title={`Switch to ${
                     user.active_role === "teacher" ? "student" : "teacher"
                   } view`}
-                  className={`rounded-full px-2.5 py-1 text-xs font-medium transition hover:brightness-95 ${
+                  className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition hover:brightness-95 disabled:opacity-70 ${
                     user.active_role === "teacher"
                       ? "bg-brand-50 text-brand-700 ring-1 ring-brand-600/20"
                       : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20"
                   }`}
                 >
-                  {user.active_role === "teacher" ? "🧑‍🏫 Teacher view" : "🎒 Student view"}
-                  <span className="ml-1 opacity-50">⇄</span>
+                  {switching ? (
+                    <>
+                      <Spinner className="h-3 w-3" /> Switching…
+                    </>
+                  ) : (
+                    <>
+                      {user.active_role === "teacher"
+                        ? "🧑‍🏫 Teacher view"
+                        : "🎒 Student view"}
+                      <span className="opacity-50">⇄</span>
+                    </>
+                  )}
                 </button>
               )}
               <button
