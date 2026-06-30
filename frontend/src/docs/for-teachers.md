@@ -23,5 +23,9 @@ leave them in *Automatic placement* to let the solver decide. Run it, review the
 layout and per-student assignments, then **finalise** the solution. You can optionally
 let students reassign into classes that still have free space.
 
-<!-- Replace with a real screenshot in frontend/public/docs/ -->
-<!-- <img src="/docs/processing.png" alt="Processing screen" /> -->
+## Try it
+
+This is the real teacher view running on dummy data — click around freely. Nothing is
+saved; refresh to reset.
+
+<iframe src="/example/teacher" title="Teacher demo" style="width:100%;height:640px;border:1px solid #e2e8f0;border-radius:12px;background:#fff"></iframe>

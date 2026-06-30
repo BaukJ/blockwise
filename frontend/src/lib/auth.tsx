@@ -20,7 +20,8 @@ interface AuthState {
   logout: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthState | null>(null);
+export const AuthContext = createContext<AuthState | null>(null);
+export type { AuthState };
 
 // Cookies are httpOnly so JS can't read them; this localStorage flag is a hint that
 // we *think* the user is logged in, letting "/" render instantly when they're not

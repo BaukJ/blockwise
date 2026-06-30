@@ -10,11 +10,28 @@ export class ApiError extends Error {
   }
 }
 
+// Mock interception for the /example showcase pages. When set, requests resolve from
+// an in-memory handler instead of hitting the real backend (see lib/exampleApi.ts).
+export type MockHandler = (
+  method: string,
+  path: string,
+  body?: unknown,
+) => unknown | Promise<unknown>;
+let mockHandler: MockHandler | null = null;
+export function setMockHandler(h: MockHandler | null) {
+  mockHandler = h;
+}
+
 async function request<T>(
   method: string,
   path: string,
   body?: unknown,
 ): Promise<T> {
+  if (mockHandler) {
+    // Small delay so loading states are visible in the demo.
+    await new Promise((r) => setTimeout(r, 150));
+    return (await mockHandler(method, path, body)) as T;
+  }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
   let res: Response;

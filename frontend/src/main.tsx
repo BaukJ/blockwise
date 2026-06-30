@@ -8,6 +8,7 @@ import Verify from "./pages/Verify";
 import Reset from "./pages/Reset";
 import Fill from "./pages/Fill";
 import Docs from "./pages/Docs";
+import { ExampleTeacher, ExampleStudent } from "./pages/Example";
 import RoleChoice from "./pages/RoleChoice";
 import Landing from "./pages/Landing";
 import TeacherDashboard from "./pages/TeacherDashboard";
@@ -16,8 +17,8 @@ import StudentDashboard from "./pages/StudentDashboard";
 import StudentTimetablePage from "./pages/StudentTimetable";
 import "./index.css";
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
+function App() {
+  return (
     <AuthProvider>
       <BrowserRouter>
         <Routes>
@@ -37,5 +38,22 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         </Routes>
       </BrowserRouter>
     </AuthProvider>
+  );
+}
+
+// The /example/* showcase runs as its own self-contained app with its own router
+// and mock backend — it must NOT be nested inside the main BrowserRouter (react-router
+// forbids nested routers).
+function Root() {
+  const path = window.location.pathname;
+  if (path.startsWith("/example/")) {
+    return path.includes("/student") ? <ExampleStudent /> : <ExampleTeacher />;
+  }
+  return <App />;
+}
+
+ReactDOM.createRoot(document.getElementById("root")!).render(
+  <React.StrictMode>
+    <Root />
   </React.StrictMode>,
 );
