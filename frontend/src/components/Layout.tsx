@@ -78,6 +78,13 @@ export default function Layout({ children }: { children: ReactNode }) {
                     {user.email}
                   </div>
                   <div className="my-1 border-t border-slate-100" />
+                  <Link
+                    to="/docs"
+                    className="block rounded px-3 py-2 text-left text-sm hover:bg-slate-50"
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    Docs
+                  </Link>
                   <button
                     className="block w-full rounded px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
                     onClick={async () => {
