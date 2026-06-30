@@ -1,12 +1,13 @@
 import { useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import { api, ApiError, type User } from "../lib/api";
 import { useAuth } from "../lib/auth";
+import { Spinner } from "../components/Spinner";
 
 type Mode = "login" | "register" | "forgot";
 
 export default function Login() {
-  const { user, refresh } = useAuth();
+  const { user, checked, maybeAuthed, refresh } = useAuth();
   const [mode, setMode] = useState<Mode>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -15,6 +16,9 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
 
   if (user) return <Navigate to="/" replace />;
+  // We think there's a remembered session and are verifying it — show a loader over
+  // the form so it doesn't flash before redirecting to the app.
+  const verifying = !checked && maybeAuthed;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -42,15 +46,20 @@ export default function Login() {
   return (
     <div className="grid min-h-screen place-items-center bg-slate-50 px-4">
       <div className="w-full max-w-sm">
-        <div className="mb-6 text-center">
+        <Link to="/" className="mb-6 block text-center">
           <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-xl bg-brand-600 text-xl font-bold text-white">
             B
           </div>
           <h1 className="text-xl font-semibold">Blockwise</h1>
           <p className="text-sm text-slate-500">Timetable block optimisation</p>
-        </div>
+        </Link>
 
-        <div className="card">
+        <div className="card relative">
+          {verifying && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-xl bg-white/80 text-sm text-slate-500">
+              <Spinner /> Checking your session…
+            </div>
+          )}
           <form onSubmit={submit} className="space-y-3">
             <input
               className="input"
